@@ -228,13 +228,25 @@ fn get_sh_shell(path: Option<&PathBuf>) -> Option<Shell> {
 }
 
 fn get_powershell_shell(path: Option<&PathBuf>) -> Option<Shell> {
+    let powershell_fallback_paths = if cfg!(windows) {
+        vec!["C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"]
+    } else {
+        Vec::new()
+    };
     let shell_path = get_shell_path(
         ShellType::PowerShell,
         path,
         "pwsh",
         vec!["/usr/local/bin/pwsh"],
     )
-    .or_else(|| get_shell_path(ShellType::PowerShell, path, "powershell", vec![]));
+    .or_else(|| {
+        get_shell_path(
+            ShellType::PowerShell,
+            path,
+            "powershell",
+            powershell_fallback_paths,
+        )
+    });
 
     shell_path.map(|shell_path| Shell {
         shell_type: ShellType::PowerShell,
