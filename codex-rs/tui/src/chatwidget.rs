@@ -364,6 +364,10 @@ use self::realtime::RenderedUserMessageEvent;
 mod status_surfaces;
 use self::status_surfaces::CachedProjectRootName;
 use self::status_surfaces::TerminalTitleStatusKind;
+mod working_status_words;
+use self::working_status_words::DEFAULT_WORKING_STATUS;
+use self::working_status_words::choose_working_status_word;
+use self::working_status_words::load_working_status_words;
 use crate::streaming::chunking::AdaptiveChunkingPolicy;
 use crate::streaming::commit_tick::CommitTickScope;
 use crate::streaming::commit_tick::run_commit_tick;
@@ -835,6 +839,12 @@ pub(crate) struct ChatWidget {
     pending_guardian_review_status: PendingGuardianReviewStatus,
     // Semantic status used for terminal-title status rendering.
     terminal_title_status_kind: TerminalTitleStatusKind,
+    // Candidate labels loaded from the local spinner word list.
+    working_status_words: Vec<String>,
+    // Active label reused for the current task across header/title restores.
+    current_working_status_word: String,
+    // True once the current turn has claimed a random working label.
+    has_current_turn_working_status_word: bool,
     // Previous status header to restore after a transient stream retry.
     retry_status_header: Option<String>,
     // Set when commentary output completes; once stream queues go idle we restore the status row.
@@ -1671,13 +1681,28 @@ impl ChatWidget {
         self.refresh_terminal_title();
     }
 
+    fn choose_next_working_status_word(&mut self) {
+        self.current_working_status_word = choose_working_status_word(&self.working_status_words);
+        self.has_current_turn_working_status_word = true;
+    }
+
+    fn ensure_current_turn_working_status_word(&mut self) {
+        if !self.has_current_turn_working_status_word {
+            self.choose_next_working_status_word();
+        }
+    }
+
+    fn restore_working_status_header(&mut self) {
+        self.terminal_title_status_kind = TerminalTitleStatusKind::Working;
+        self.set_status_header(self.current_working_status_word.clone());
+    }
+
     fn restore_reasoning_status_header(&mut self) {
         if let Some(header) = extract_first_bold(&self.reasoning_buffer) {
             self.terminal_title_status_kind = TerminalTitleStatusKind::Thinking;
             self.set_status_header(header);
         } else if self.bottom_pane.is_task_running() {
-            self.terminal_title_status_kind = TerminalTitleStatusKind::Working;
-            self.set_status_header(String::from("Working"));
+            self.restore_working_status_header();
         }
     }
 
@@ -2288,13 +2313,14 @@ impl ChatWidget {
         self.bottom_pane.clear_quit_shortcut_hint();
         self.quit_shortcut_expires_at = None;
         self.quit_shortcut_key = None;
+        self.ensure_current_turn_working_status_word();
+        self.terminal_title_status_kind = TerminalTitleStatusKind::Working;
         self.update_task_running_state();
         self.retry_status_header = None;
         self.pending_status_indicator_restore = false;
         self.bottom_pane
             .set_interrupt_hint_visible(/*visible*/ true);
-        self.terminal_title_status_kind = TerminalTitleStatusKind::Working;
-        self.set_status_header(String::from("Working"));
+        self.set_status_header(self.current_working_status_word.clone());
         self.full_reasoning_buffer.clear();
         self.reasoning_buffer.clear();
         self.request_redraw();
@@ -2343,6 +2369,7 @@ impl ChatWidget {
         // Mark task stopped and request redraw now that all content is in history.
         self.pending_status_indicator_restore = false;
         self.agent_turn_running = false;
+        self.has_current_turn_working_status_word = false;
         self.turn_sleep_inhibitor
             .set_turn_running(/*turn_running*/ false);
         self.update_task_running_state();
@@ -3333,12 +3360,12 @@ impl ChatWidget {
                     status.details_max_lines,
                 );
             } else if self.current_status.is_guardian_review() {
-                self.set_status_header(String::from("Working"));
+                self.restore_working_status_header();
             }
         } else if self.pending_guardian_review_status.is_empty()
             && self.current_status.is_guardian_review()
         {
-            self.set_status_header(String::from("Working"));
+            self.restore_working_status_header();
         }
 
         if ev.status == GuardianAssessmentStatus::Approved {
@@ -4600,6 +4627,8 @@ impl ChatWidget {
 
         let current_cwd = Some(config.cwd.to_path_buf());
         let queued_message_edit_binding = queued_message_edit_binding_for_terminal(terminal_info());
+        let working_status_words = load_working_status_words();
+        let current_working_status_word = DEFAULT_WORKING_STATUS.to_string();
         let mut widget = Self {
             app_event_tx: app_event_tx.clone(),
             frame_requester: frame_requester.clone(),
@@ -4669,6 +4698,9 @@ impl ChatWidget {
             current_status: StatusIndicatorState::working(),
             pending_guardian_review_status: PendingGuardianReviewStatus::default(),
             terminal_title_status_kind: TerminalTitleStatusKind::Working,
+            working_status_words,
+            current_working_status_word,
+            has_current_turn_working_status_word: false,
             retry_status_header: None,
             pending_status_indicator_restore: false,
             suppress_queue_autosend: false,
@@ -4886,7 +4918,6 @@ impl ChatWidget {
                         // Reset any reasoning header only when we are actually submitting a turn.
                         self.reasoning_buffer.clear();
                         self.full_reasoning_buffer.clear();
-                        self.set_status_header(String::from("Working"));
                         self.submit_user_message(user_message);
                     } else {
                         self.queue_user_message(user_message);
@@ -5438,7 +5469,6 @@ impl ChatWidget {
                 if self.is_session_configured() {
                     self.reasoning_buffer.clear();
                     self.full_reasoning_buffer.clear();
-                    self.set_status_header(String::from("Working"));
                     self.submit_user_message(user_message);
                 } else {
                     self.queue_user_message(user_message);
@@ -5634,6 +5664,9 @@ impl ChatWidget {
                 text_elements: text_elements.clone(),
             });
         }
+
+        self.choose_next_working_status_word();
+        self.restore_working_status_header();
 
         let mentions = collect_tool_mentions(&text, &HashMap::new());
         let bound_names: HashSet<String> = mention_bindings
