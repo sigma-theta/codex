@@ -6,8 +6,8 @@ simple sequence for any ToolRuntime: approval → select sandbox → attempt →
 retry with an escalated sandbox strategy on denial (no re‑approval thanks to
 caching).
 */
-use crate::error::CodexErr;
-use crate::error::SandboxErr;
+use codex_protocol::error::CodexErr;
+use codex_protocol::error::SandboxErr;
 use crate::guardian::GUARDIAN_REJECTION_MESSAGE;
 use crate::guardian::routes_approval_to_guardian;
 use crate::network_policy_decision::network_approval_context_from_payload;

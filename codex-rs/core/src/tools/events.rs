@@ -1,7 +1,7 @@
 use crate::codex::Session;
 use crate::codex::TurnContext;
-use crate::error::CodexErr;
-use crate::error::SandboxErr;
+use codex_protocol::error::CodexErr;
+use codex_protocol::error::SandboxErr;
 use crate::function_tool::FunctionCallError;
 use crate::parse_command::parse_command;
 use crate::protocol::EventMsg;

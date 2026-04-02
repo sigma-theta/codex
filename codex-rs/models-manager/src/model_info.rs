@@ -20,7 +20,7 @@ const LOCAL_FRIENDLY_TEMPLATE: &str =
 const LOCAL_PRAGMATIC_TEMPLATE: &str = "You are a deeply pragmatic, effective software engineer.";
 const PERSONALITY_PLACEHOLDER: &str = "{{ personality }}";
 
-pub(crate) fn with_config_overrides(
+pub fn with_config_overrides(
     mut model: ModelInfo,
     config: &ModelsManagerConfig,
 ) -> ModelInfo {
@@ -60,7 +60,7 @@ pub(crate) fn with_config_overrides(
 }
 
 /// Build a minimal fallback model descriptor for missing/unknown slugs.
-pub(crate) fn model_info_from_slug(slug: &str) -> ModelInfo {
+pub fn model_info_from_slug(slug: &str) -> ModelInfo {
     warn!("Unknown model {slug} is used. This will use fallback model metadata.");
     ModelInfo {
         slug: slug.to_string(),

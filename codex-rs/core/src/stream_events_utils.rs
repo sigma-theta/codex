@@ -12,8 +12,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::codex::Session;
 use crate::codex::TurnContext;
-use crate::error::CodexErr;
-use crate::error::Result;
+use codex_protocol::error::CodexErr;
+use codex_protocol::error::Result;
 use crate::function_tool::FunctionCallError;
 use crate::memories::citations::get_thread_id_from_citations;
 use crate::memories::citations::parse_memory_citation;

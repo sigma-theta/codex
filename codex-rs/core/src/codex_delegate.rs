@@ -38,7 +38,7 @@ use crate::codex::SUBMISSION_CHANNEL_CAPACITY;
 use crate::codex::Session;
 use crate::codex::TurnContext;
 use crate::config::Config;
-use crate::error::CodexErr;
+use codex_protocol::error::CodexErr;
 use crate::guardian::GuardianApprovalRequest;
 use crate::guardian::review_approval_request_with_cancel;
 use crate::guardian::routes_approval_to_guardian;

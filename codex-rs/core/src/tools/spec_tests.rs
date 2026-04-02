@@ -1,5 +1,4 @@
 use crate::config::test_config;
-use crate::models_manager::manager::ModelsManager;
 use crate::models_manager::model_info::with_config_overrides;
 use crate::shell::Shell;
 use crate::shell::ShellType;
@@ -260,7 +259,7 @@ fn model_info_from_models_json(slug: &str) -> ModelInfo {
         .into_iter()
         .find(|candidate| candidate.slug == slug)
         .unwrap_or_else(|| panic!("model slug {slug} is missing from models.json"));
-    with_config_overrides(model, &config)
+    with_config_overrides(model, &config.to_models_manager_config())
 }
 
 #[test]

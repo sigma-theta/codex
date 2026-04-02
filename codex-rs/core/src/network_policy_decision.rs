@@ -1,7 +1,6 @@
 use codex_execpolicy::Decision as ExecPolicyDecision;
 use codex_execpolicy::NetworkRuleProtocol as ExecPolicyNetworkRuleProtocol;
 use codex_network_proxy::BlockedRequest;
-use codex_network_proxy::NetworkDecisionSource;
 use codex_network_proxy::NetworkPolicyDecision;
 use codex_protocol::approvals::NetworkApprovalContext;
 use codex_protocol::approvals::NetworkApprovalProtocol;
@@ -14,12 +13,6 @@ pub(crate) struct ExecPolicyNetworkRuleAmendment {
     pub protocol: ExecPolicyNetworkRuleProtocol,
     pub decision: ExecPolicyDecision,
     pub justification: String,
-}
-
-impl NetworkPolicyDecisionPayload {
-    pub(crate) fn is_ask_from_decider(&self) -> bool {
-        self.decision == NetworkPolicyDecision::Ask && self.source == NetworkDecisionSource::Decider
-    }
 }
 
 fn parse_network_policy_decision(value: &str) -> Option<NetworkPolicyDecision> {

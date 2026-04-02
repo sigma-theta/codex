@@ -2,7 +2,7 @@ use crate::agent::AgentStatus;
 use crate::codex::Session;
 use crate::codex::TurnContext;
 use crate::config::Config;
-use crate::error::CodexErr;
+use codex_protocol::error::CodexErr;
 use crate::function_tool::FunctionCallError;
 use crate::models_manager::manager::RefreshStrategy;
 use crate::tools::context::FunctionToolOutput;

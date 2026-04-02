@@ -5,7 +5,7 @@ use crate::codex::TurnContext;
 use crate::config::Config;
 use crate::config::types::MemoriesConfig;
 use crate::contextual_user_message::is_memory_excluded_contextual_user_fragment;
-use crate::error::CodexErr;
+use codex_protocol::error::CodexErr;
 use crate::memories::metrics;
 use crate::memories::phase_one;
 use crate::memories::phase_one::PRUNE_BATCH_SIZE;
@@ -466,7 +466,7 @@ mod job {
     /// Serializes filtered stage-1 memory items for prompt inclusion.
     pub(super) fn serialize_filtered_rollout_response_items(
         items: &[RolloutItem],
-    ) -> crate::error::Result<String> {
+    ) -> codex_protocol::error::Result<String> {
         let filtered = items
             .iter()
             .filter_map(|item| {

@@ -11,7 +11,7 @@ use tracing::trace_span;
 
 use crate::codex::Session;
 use crate::codex::TurnContext;
-use crate::error::CodexErr;
+use codex_protocol::error::CodexErr;
 use crate::function_tool::FunctionCallError;
 use crate::tools::context::AbortedToolOutput;
 use crate::tools::context::SharedTurnDiffTracker;

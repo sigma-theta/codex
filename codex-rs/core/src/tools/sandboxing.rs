@@ -6,7 +6,7 @@
 
 use crate::codex::Session;
 use crate::codex::TurnContext;
-use crate::error::CodexErr;
+use codex_protocol::error::CodexErr;
 #[cfg(test)]
 use crate::protocol::SandboxPolicy;
 use crate::sandboxing::ExecOptions;

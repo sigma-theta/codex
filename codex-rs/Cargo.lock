@@ -2462,6 +2462,7 @@ name = "codex-protocol"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "chardetng",
  "chrono",
  "codex-async-utils",
  "codex-execpolicy",
@@ -2471,6 +2472,7 @@ dependencies = [
  "codex-utils-image",
  "codex-utils-string",
  "codex-utils-template",
+ "encoding_rs",
  "icu_decimal",
  "icu_locale_core",
  "icu_provider",

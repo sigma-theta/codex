@@ -17,9 +17,9 @@ use tokio::io::BufReader;
 use tokio::process::Child;
 use tokio_util::sync::CancellationToken;
 
-use crate::error::CodexErr;
-use crate::error::Result;
-use crate::error::SandboxErr;
+use codex_protocol::error::CodexErr;
+use codex_protocol::error::Result;
+use codex_protocol::error::SandboxErr;
 use crate::protocol::Event;
 use crate::protocol::EventMsg;
 use crate::protocol::ExecCommandOutputDeltaEvent;
@@ -31,7 +31,6 @@ use crate::sandboxing::SandboxPermissions;
 use crate::spawn::SpawnChildRequest;
 use crate::spawn::StdioPolicy;
 use crate::spawn::spawn_child_async;
-use crate::text_encoding::bytes_to_string_smart;
 use codex_network_proxy::NetworkProxy;
 use codex_protocol::config_types::WindowsSandboxLevel;
 use codex_protocol::exec_output::ExecToolCallOutput;
@@ -634,25 +633,6 @@ fn finalize_exec_result(
     }
 }
 
-pub(crate) mod errors {
-    use super::CodexErr;
-    use codex_sandboxing::SandboxTransformError;
-
-    impl From<SandboxTransformError> for CodexErr {
-        fn from(err: SandboxTransformError) -> Self {
-            match err {
-                SandboxTransformError::MissingLinuxSandboxExecutable => {
-                    CodexErr::LandlockSandboxExecutableNotProvided
-                }
-                #[cfg(not(target_os = "macos"))]
-                SandboxTransformError::SeatbeltUnavailable => CodexErr::UnsupportedOperation(
-                    "seatbelt sandbox is only available on macOS".to_string(),
-                ),
-            }
-        }
-    }
-}
-
 /// We don't have a fully deterministic way to tell if our command failed
 /// because of the sandbox - a command in the user's zshrc file might hit an
 /// error, but the command itself might fail or succeed for other reasons.
@@ -722,15 +702,6 @@ struct RawExecToolCallOutput {
     pub stderr: StreamOutput<Vec<u8>>,
     pub aggregated_output: StreamOutput<Vec<u8>>,
     pub timed_out: bool,
-}
-
-impl StreamOutput<Vec<u8>> {
-    pub fn from_utf8_lossy(&self) -> StreamOutput<String> {
-        StreamOutput {
-            text: bytes_to_string_smart(&self.text),
-            truncated_after_lines: self.truncated_after_lines,
-        }
-    }
 }
 
 #[inline]

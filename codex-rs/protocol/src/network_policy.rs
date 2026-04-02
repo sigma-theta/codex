@@ -14,3 +14,9 @@ pub struct NetworkPolicyDecisionPayload {
     pub reason: Option<String>,
     pub port: Option<u16>,
 }
+
+impl NetworkPolicyDecisionPayload {
+    pub fn is_ask_from_decider(&self) -> bool {
+        self.decision == NetworkPolicyDecision::Ask && self.source == NetworkDecisionSource::Decider
+    }
+}

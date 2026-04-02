@@ -54,6 +54,7 @@ fn env_var_present(name: &str) -> bool {
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+    use crate::WireApi;
 
     #[test]
     fn collect_auth_env_telemetry_buckets_provider_env_key_name() {
