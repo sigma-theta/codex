@@ -57,4 +57,20 @@ You can also use Codex with an API key, but this requires [additional setup](htt
 - [**Installing & building**](./docs/install.md)
 - [**Open source fund**](./docs/open-source-fund.md)
 
+## Local customization workflow
+
+If you keep local Codex changes in a dedicated branch, you can rebase that branch onto the latest upstream `main` and rebuild with:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-spinner-branch.ps1
+```
+
+Useful options:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-spinner-branch.ps1 -DryRun
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-spinner-branch.ps1 -SkipBuild
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-spinner-branch.ps1 -SkipPush
+```
+
 This repository is licensed under the [Apache-2.0 License](LICENSE).
