@@ -1,6 +1,5 @@
 [CmdletBinding()]
 param(
-    [string]$PatchBranch = "local/spinner-words",
     [string]$BaseBranch = "main",
     [string]$UpstreamRemote = "origin",
     [string]$PushRemote = "fork",
@@ -66,11 +65,9 @@ try {
     Invoke-Step "git fetch $UpstreamRemote $BaseBranch $PushRemote" -AllowDryRun
     Invoke-Step "git switch $BaseBranch" -AllowDryRun
     Invoke-Step "git rebase $UpstreamRemote/$BaseBranch" -AllowDryRun
-    Invoke-Step "git switch $PatchBranch" -AllowDryRun
-    Invoke-Step "git rebase $BaseBranch" -AllowDryRun
 
     if (-not $SkipPush) {
-        Invoke-Step "git push --force-with-lease $PushRemote $PatchBranch" -AllowDryRun
+        Invoke-Step "git push $PushRemote $BaseBranch" -AllowDryRun
     }
 
     if (-not $SkipBuild) {

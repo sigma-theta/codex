@@ -59,7 +59,7 @@ You can also use Codex with an API key, but this requires [additional setup](htt
 
 ## Local customization workflow
 
-If you keep local Codex changes in a dedicated branch, you can rebase that branch onto the latest upstream `main` and rebuild with:
+If you keep your Codex customization directly on your fork's `main`, you can rebase that local `main` onto the latest upstream `main`, push it back to your fork, and rebuild with:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-spinner-branch.ps1
