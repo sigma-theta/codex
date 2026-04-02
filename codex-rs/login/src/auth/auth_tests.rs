@@ -395,7 +395,7 @@ $lines | Select-Object -Skip 1 | Set-Content -Path tokens.txt
 "#,
             )?;
             (
-                "powershell.exe".to_string(),
+                "powershell".to_string(),
                 vec![
                     "-NoProfile".to_string(),
                     "-ExecutionPolicy".to_string(),
@@ -436,7 +436,7 @@ exit 1
 
         #[cfg(windows)]
         let (command, args) = (
-            "powershell.exe".to_string(),
+            "powershell".to_string(),
             vec![
                 "-NoProfile".to_string(),
                 "-ExecutionPolicy".to_string(),
@@ -457,7 +457,7 @@ exit 1
         serde_json::from_value(json!({
             "command": self.command,
             "args": self.args,
-            "timeout_ms": 10000,
+            "timeout_ms": 1000,
             "refresh_interval_ms": 60000,
             "cwd": self.tempdir.path(),
         }))
