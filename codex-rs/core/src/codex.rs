@@ -652,6 +652,7 @@ impl Codex {
             network_sandbox_policy: config.permissions.network_sandbox_policy,
             windows_sandbox_level: WindowsSandboxLevel::from_config(&config),
             cwd: config.cwd.clone(),
+            additional_working_directories: config.additional_working_directories.clone(),
             codex_home: config.codex_home.clone(),
             thread_name: None,
             original_config_do_not_use: Arc::clone(&config),
@@ -1190,6 +1191,7 @@ pub(crate) struct SessionConfiguration {
     /// execution sandbox are resolved against this directory **instead** of
     /// the process-wide current working directory.
     cwd: AbsolutePathBuf,
+    additional_working_directories: Vec<AbsolutePathBuf>,
     /// Directory containing all Codex state for this session.
     codex_home: AbsolutePathBuf,
     /// Optional user-facing name for the thread, updated during the session.
@@ -1265,6 +1267,10 @@ impl SessionConfiguration {
         if let Some(windows_sandbox_level) = updates.windows_sandbox_level {
             next_configuration.windows_sandbox_level = windows_sandbox_level;
         }
+        if let Some(additional_working_directories) = updates.additional_working_directories.clone()
+        {
+            next_configuration.additional_working_directories = additional_working_directories;
+        }
 
         let absolute_cwd = updates
             .cwd
@@ -1308,6 +1314,7 @@ pub(crate) struct SessionSettingsUpdate {
     pub(crate) approvals_reviewer: Option<ApprovalsReviewer>,
     pub(crate) sandbox_policy: Option<SandboxPolicy>,
     pub(crate) windows_sandbox_level: Option<WindowsSandboxLevel>,
+    pub(crate) additional_working_directories: Option<Vec<AbsolutePathBuf>>,
     pub(crate) collaboration_mode: Option<CollaborationMode>,
     pub(crate) reasoning_summary: Option<ReasoningSummaryConfig>,
     pub(crate) service_tier: Option<Option<ServiceTier>>,
@@ -1447,6 +1454,8 @@ impl Session {
         let config = session_configuration.original_config_do_not_use.clone();
         let mut per_turn_config = (*config).clone();
         per_turn_config.cwd = session_configuration.cwd.clone();
+        per_turn_config.additional_working_directories =
+            session_configuration.additional_working_directories.clone();
         per_turn_config.model_reasoning_effort =
             session_configuration.collaboration_mode.reasoning_effort();
         per_turn_config.model_reasoning_summary = session_configuration.model_reasoning_summary;
@@ -4708,6 +4717,7 @@ async fn submission_loop(sess: Arc<Session>, config: Arc<Config>, rx_sub: Receiv
                     approvals_reviewer,
                     sandbox_policy,
                     windows_sandbox_level,
+                    additional_working_directories,
                     model,
                     effort,
                     summary,
@@ -4734,6 +4744,7 @@ async fn submission_loop(sess: Arc<Session>, config: Arc<Config>, rx_sub: Receiv
                             approvals_reviewer,
                             sandbox_policy,
                             windows_sandbox_level,
+                            additional_working_directories,
                             collaboration_mode: Some(collaboration_mode),
                             reasoning_summary: summary,
                             service_tier,
@@ -5059,6 +5070,7 @@ mod handlers {
                         approvals_reviewer,
                         sandbox_policy: Some(sandbox_policy),
                         windows_sandbox_level: None,
+                        additional_working_directories: None,
                         collaboration_mode,
                         reasoning_summary: summary,
                         service_tier,
@@ -5462,7 +5474,8 @@ mod handlers {
                 )
                 .await;
             let skills_input = crate::SkillsLoadInput::new(
-                cwd_abs.clone(),
+                cwd.clone(),
+                Vec::new(),
                 effective_skill_roots,
                 config_layer_stack,
                 config.bundled_skills_enabled(),

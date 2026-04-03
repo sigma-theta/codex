@@ -25,21 +25,24 @@ use codex_config::SkillsConfig;
 
 #[derive(Debug, Clone)]
 pub struct SkillsLoadInput {
-    pub cwd: AbsolutePathBuf,
-    pub effective_skill_roots: Vec<AbsolutePathBuf>,
+    pub cwd: PathBuf,
+    pub additional_working_directories: Vec<PathBuf>,
+    pub effective_skill_roots: Vec<PathBuf>,
     pub config_layer_stack: ConfigLayerStack,
     pub bundled_skills_enabled: bool,
 }
 
 impl SkillsLoadInput {
     pub fn new(
-        cwd: AbsolutePathBuf,
-        effective_skill_roots: Vec<AbsolutePathBuf>,
+        cwd: PathBuf,
+        additional_working_directories: Vec<PathBuf>,
+        effective_skill_roots: Vec<PathBuf>,
         config_layer_stack: ConfigLayerStack,
         bundled_skills_enabled: bool,
     ) -> Self {
         Self {
             cwd,
+            additional_working_directories,
             effective_skill_roots,
             config_layer_stack,
             bundled_skills_enabled,
@@ -115,7 +118,8 @@ impl SkillsManager {
         let mut roots = skill_roots(
             fs,
             &input.config_layer_stack,
-            &input.cwd,
+            input.cwd.as_path(),
+            input.additional_working_directories.clone(),
             input.effective_skill_roots.clone(),
         )
         .await;
@@ -153,7 +157,8 @@ impl SkillsManager {
         let mut roots = skill_roots(
             fs.clone(),
             &input.config_layer_stack,
-            &input.cwd,
+            input.cwd.as_path(),
+            input.additional_working_directories.clone(),
             input.effective_skill_roots.clone(),
         )
         .await;

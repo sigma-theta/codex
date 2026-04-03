@@ -207,8 +207,9 @@ where
 pub(crate) async fn skill_roots(
     fs: Option<Arc<dyn ExecutorFileSystem>>,
     config_layer_stack: &ConfigLayerStack,
-    cwd: &AbsolutePathBuf,
-    plugin_skill_roots: Vec<AbsolutePathBuf>,
+    cwd: &Path,
+    additional_working_directories: Vec<PathBuf>,
+    plugin_skill_roots: Vec<PathBuf>,
 ) -> Vec<SkillRoot> {
     let home_dir =
         home_dir().and_then(|path| AbsolutePathBuf::from_absolute_path_checked(path).ok());
@@ -216,7 +217,8 @@ pub(crate) async fn skill_roots(
         fs,
         config_layer_stack,
         cwd,
-        home_dir.as_ref(),
+        additional_working_directories,
+        home_dir().as_deref(),
         plugin_skill_roots,
     )
     .await
@@ -225,9 +227,10 @@ pub(crate) async fn skill_roots(
 async fn skill_roots_with_home_dir(
     fs: Option<Arc<dyn ExecutorFileSystem>>,
     config_layer_stack: &ConfigLayerStack,
-    cwd: &AbsolutePathBuf,
-    home_dir: Option<&AbsolutePathBuf>,
-    plugin_skill_roots: Vec<AbsolutePathBuf>,
+    cwd: &Path,
+    additional_working_directories: Vec<PathBuf>,
+    home_dir: Option<&Path>,
+    plugin_skill_roots: Vec<PathBuf>,
 ) -> Vec<SkillRoot> {
     let mut roots = skill_roots_from_layer_stack_inner(config_layer_stack, home_dir, fs.clone());
     roots.extend(plugin_skill_roots.into_iter().map(|path| SkillRoot {
@@ -235,7 +238,13 @@ async fn skill_roots_with_home_dir(
         scope: SkillScope::User,
         file_system: Arc::clone(&LOCAL_FS),
     }));
-    roots.extend(repo_agents_skill_roots(fs, config_layer_stack, cwd).await);
+    roots.extend(repo_agents_skill_roots(config_layer_stack, cwd));
+    for additional_working_directory in additional_working_directories {
+        roots.extend(repo_agents_skill_roots(
+            config_layer_stack,
+            additional_working_directory.as_path(),
+        ));
+    }
     dedupe_skill_roots_by_path(&mut roots);
     roots
 }

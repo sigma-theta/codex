@@ -505,6 +505,10 @@ pub enum Op {
         #[serde(skip_serializing_if = "Option::is_none")]
         windows_sandbox_level: Option<WindowsSandboxLevel>,
 
+        /// Updated additional working directories for future turns.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        additional_working_directories: Option<Vec<AbsolutePathBuf>>,
+
         /// Updated model slug. When set, the model info is derived
         /// automatically.
         #[serde(skip_serializing_if = "Option::is_none")]

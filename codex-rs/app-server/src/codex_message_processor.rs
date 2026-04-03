@@ -6360,7 +6360,12 @@ impl CodexMessageProcessor {
                 )
                 .await;
             let skills_input = codex_core::skills::SkillsLoadInput::new(
-                cwd_abs.clone(),
+                cwd.clone(),
+                config
+                    .additional_working_directories
+                    .iter()
+                    .map(|path| path.clone().into_path_buf())
+                    .collect(),
                 effective_skill_roots,
                 config_layer_stack,
                 config.bundled_skills_enabled(),
@@ -7023,6 +7028,7 @@ impl CodexMessageProcessor {
                             .map(codex_app_server_protocol::ApprovalsReviewer::to_core),
                         sandbox_policy: params.sandbox_policy.map(|p| p.to_core()),
                         windows_sandbox_level: None,
+                        additional_working_directories: None,
                         model: params.model,
                         effort: params.effort.map(Some),
                         summary: params.summary,

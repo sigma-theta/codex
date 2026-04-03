@@ -367,6 +367,10 @@ pub struct Config {
     /// layer are resolved against this path.
     pub cwd: AbsolutePathBuf,
 
+    /// Additional absolute directories explicitly granted as working roots for
+    /// this session.
+    pub additional_working_directories: Vec<AbsolutePathBuf>,
+
     /// Preferred store for CLI auth credentials.
     /// file (default): Use a file in the Codex home directory.
     /// keyring: Use an OS-specific keyring service.
@@ -1541,10 +1545,23 @@ impl Config {
                 }
             }
         }))?;
-        let mut additional_writable_roots: Vec<AbsolutePathBuf> = additional_writable_roots
-            .into_iter()
-            .map(|path| AbsolutePathBuf::resolve_path_against_base(path, resolved_cwd.as_path()))
-            .collect();
+        let configured_additional_directories = cfg
+            .permissions
+            .as_ref()
+            .map(|permissions| permissions.additional_directories.clone())
+            .unwrap_or_default();
+        let mut additional_working_directories: Vec<AbsolutePathBuf> =
+            configured_additional_directories
+                .into_iter()
+                .chain(additional_writable_roots)
+                .map(|path| {
+                    AbsolutePathBuf::resolve_path_against_base(path, resolved_cwd.as_path())
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+        additional_working_directories.dedup();
+
+        let mut additional_writable_roots: Vec<AbsolutePathBuf> =
+            additional_working_directories.clone();
         let active_project = cfg
             .get_active_project(resolved_cwd.as_path())
             .unwrap_or(ProjectConfig { trust_level: None });
@@ -2019,6 +2036,7 @@ impl Config {
             model_provider_id,
             model_provider,
             cwd: resolved_cwd,
+            additional_working_directories,
             startup_warnings,
             permissions: Permissions {
                 approval_policy: constrained_approval_policy.value,

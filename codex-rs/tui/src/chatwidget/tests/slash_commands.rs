@@ -206,6 +206,64 @@ async fn no_op_stub_slash_command_is_available_from_local_recall() {
 }
 
 #[tokio::test]
+async fn slash_add_dir_without_args_reports_current_limit() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+
+    chat.dispatch_command(SlashCommand::AddDir);
+
+    assert_matches!(op_rx.try_recv(), Err(TryRecvError::Empty));
+
+    let cells = drain_insert_history(&mut rx);
+    assert_eq!(cells.len(), 1, "expected one info message");
+    let rendered = lines_to_single_string(&cells[0]);
+    assert_snapshot!(
+        rendered,
+        @"• Interactive directory entry is not available yet. Run `/add-dir <path>` for now. Use /permissions to manage workspace access."
+    );
+}
+
+#[tokio::test]
+async fn slash_add_dir_with_args_updates_session_working_directories() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    let tempdir = tempdir().unwrap();
+    let repo_dir = tempdir.path().join("repo");
+    let shared_dir = tempdir.path().join("shared");
+    std::fs::create_dir(&repo_dir).unwrap();
+    std::fs::create_dir(&shared_dir).unwrap();
+    chat.config.cwd = repo_dir.clone().abs();
+
+    chat.dispatch_command_with_args(SlashCommand::AddDir, "../shared".to_string(), Vec::new());
+
+    let expected_dir = AbsolutePathBuf::try_from(shared_dir.clone()).unwrap();
+    match op_rx.try_recv() {
+        Ok(Op::OverrideTurnContext {
+            additional_working_directories: Some(directories),
+            ..
+        }) => {
+            assert_eq!(directories, vec![expected_dir.clone()]);
+        }
+        other => panic!("expected add-dir override op, got {other:?}"),
+    }
+
+    assert_eq!(
+        chat.config.additional_working_directories,
+        vec![expected_dir]
+    );
+
+    let cells = drain_insert_history(&mut rx);
+    assert_eq!(cells.len(), 1, "expected one info message");
+    let rendered = lines_to_single_string(&cells[0]);
+    assert!(
+        rendered.contains("Added"),
+        "expected success message, got {rendered:?}"
+    );
+    assert!(
+        rendered.contains(&shared_dir.display().to_string()),
+        "expected success message to mention added path: {rendered:?}"
+    );
+}
+
+#[tokio::test]
 async fn slash_quit_requests_exit() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
 
