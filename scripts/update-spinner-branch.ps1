@@ -42,6 +42,67 @@ function Get-GitOutput {
     $output
 }
 
+function Get-WorkspaceVersion {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ManifestPath
+    )
+
+    $manifestContent = Get-Content $ManifestPath -Raw
+    $match = [regex]::Match($manifestContent, '(?ms)\[workspace\.package\].*?^version = "(?<version>[^"]+)"')
+    if (-not $match.Success) {
+        throw "Failed to determine workspace.package.version from $ManifestPath"
+    }
+
+    $match.Groups['version'].Value
+}
+
+function Get-LatestReleaseVersion {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$UpstreamRemoteName
+    )
+
+    Invoke-Step "git fetch $UpstreamRemoteName --tags" -AllowDryRun
+
+    $tags = Get-GitOutput "git tag --list 'rust-v*' --sort=-version:refname"
+    $latestTag = $tags | Select-Object -First 1
+    if (-not $latestTag) {
+        throw "Failed to determine the latest upstream rust release tag."
+    }
+
+    if ($latestTag -notmatch '^rust-v(?<version>.+)$') {
+        throw "Unexpected rust release tag format: $latestTag"
+    }
+
+    $Matches.version
+}
+
+function Set-WorkspaceVersionForBuild {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ManifestPath,
+        [Parameter(Mandatory = $true)]
+        [string]$BuildVersion
+    )
+
+    $manifestContent = Get-Content $ManifestPath -Raw
+    $versionPattern = '(?ms)(\[workspace\.package\].*?^version = ")([^"]+)(")'
+    $updatedContent = [regex]::Replace(
+        $manifestContent,
+        $versionPattern,
+        ('$1{0}$3' -f $BuildVersion),
+        1
+    )
+
+    if ($updatedContent -eq $manifestContent) {
+        throw "Failed to update workspace.package.version in $ManifestPath"
+    }
+
+    Set-Content -Path $ManifestPath -Value $updatedContent -NoNewline
+    $manifestContent
+}
+
 $repoRoot = Get-GitOutput "git rev-parse --show-toplevel"
 $repoRoot = $repoRoot | Select-Object -First 1
 if (-not $repoRoot) {
@@ -62,7 +123,8 @@ if (-not $originalBranch) {
 }
 
 try {
-    Invoke-Step "git fetch $UpstreamRemote $BaseBranch $PushRemote" -AllowDryRun
+    Invoke-Step "git fetch $UpstreamRemote $BaseBranch" -AllowDryRun
+    Invoke-Step "git fetch $PushRemote" -AllowDryRun
     Invoke-Step "git switch $BaseBranch" -AllowDryRun
     Invoke-Step "git rebase $UpstreamRemote/$BaseBranch" -AllowDryRun
 
@@ -72,8 +134,28 @@ try {
 
     if (-not $SkipBuild) {
         $codexRsRoot = Join-Path $repoRoot "codex-rs"
+        $cargoManifestPath = Join-Path $codexRsRoot "Cargo.toml"
         Set-Location $codexRsRoot
-        Invoke-Step "cargo build --release -p codex-tui" -AllowDryRun
+        $originalManifestContent = $null
+
+        try {
+            if (-not $DryRun) {
+                $workspaceVersion = Get-WorkspaceVersion -ManifestPath $cargoManifestPath
+                if ($workspaceVersion -eq "0.0.0") {
+                    $latestReleaseVersion = Get-LatestReleaseVersion -UpstreamRemoteName $UpstreamRemote
+                    $shortHead = Get-GitOutput "git rev-parse --short HEAD" | Select-Object -First 1
+                    $buildVersion = "$latestReleaseVersion-local+$shortHead"
+                    Write-Host "==> Using temporary build version $buildVersion"
+                    $originalManifestContent = Set-WorkspaceVersionForBuild -ManifestPath $cargoManifestPath -BuildVersion $buildVersion
+                }
+            }
+
+            Invoke-Step "cargo build --release -p codex-tui" -AllowDryRun
+        } finally {
+            if ($null -ne $originalManifestContent) {
+                Set-Content -Path $cargoManifestPath -Value $originalManifestContent -NoNewline
+            }
+        }
     }
 } finally {
     Set-Location $repoRoot

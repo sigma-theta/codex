@@ -65,6 +65,8 @@ If you keep your Codex customization directly on your fork's `main`, you can reb
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-spinner-branch.ps1
 ```
 
+When the workspace version is still `0.0.0`, the script now stamps the build with a temporary local version derived from the latest upstream `rust-v*` release tag, so the compiled binary does not stay at `v0.0.0`.
+
 Useful options:
 
 ```powershell
@@ -74,3 +76,4 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-spinner-branc
 ```
 
 This repository is licensed under the [Apache-2.0 License](LICENSE).
+
