@@ -5221,6 +5221,9 @@ impl ChatWidget {
             SlashCommand::Permissions => {
                 self.open_permissions_popup();
             }
+            SlashCommand::AddDir => {
+                self.handle_add_dir(None);
+            }
             SlashCommand::ElevateSandbox => {
                 #[cfg(target_os = "windows")]
                 {
@@ -5550,6 +5553,10 @@ impl ChatWidget {
                 }));
                 self.bottom_pane.drain_pending_submission_state();
             }
+            SlashCommand::AddDir if !trimmed.is_empty() => {
+                self.handle_add_dir(Some(trimmed.to_string()));
+                self.bottom_pane.drain_pending_submission_state();
+            }
             SlashCommand::SandboxReadRoot if !trimmed.is_empty() => {
                 let Some((prepared_args, _prepared_elements)) = self
                     .bottom_pane
@@ -5565,6 +5572,99 @@ impl ChatWidget {
             }
             _ => self.dispatch_command(cmd),
         }
+    }
+
+    fn handle_add_dir(&mut self, input: Option<String>) {
+        let Some(input) = input else {
+            self.add_info_message(
+                "Interactive directory entry is not available yet. Run `/add-dir <path>` for now."
+                    .to_string(),
+                Some("Use /permissions to manage workspace access.".to_string()),
+            );
+            return;
+        };
+
+        let trimmed = input.trim();
+        if trimmed.is_empty() {
+            self.add_error_message("Please provide a directory path.".to_string());
+            return;
+        }
+
+        let normalized_path =
+            match AbsolutePathBuf::resolve_path_against_base(trimmed, &self.config.cwd) {
+                Ok(path) => path,
+                Err(err) => {
+                    self.add_error_message(format!("Failed to resolve {trimmed}: {err}"));
+                    return;
+                }
+            };
+
+        let metadata = match std::fs::metadata(normalized_path.as_path()) {
+            Ok(metadata) => metadata,
+            Err(_) => {
+                self.add_error_message(format!(
+                    "Path {} was not found.",
+                    normalized_path.display()
+                ));
+                return;
+            }
+        };
+
+        if !metadata.is_dir() {
+            let suggestion = normalized_path.parent().map_or_else(String::new, |parent| {
+                format!(
+                    " Did you mean to add the parent directory {}?",
+                    parent.display()
+                )
+            });
+            self.add_error_message(format!("{trimmed} is not a directory.{suggestion}"));
+            return;
+        }
+
+        let existing_roots = std::iter::once(&self.config.cwd)
+            .chain(self.config.additional_working_directories.iter());
+        if let Some(existing_root) = existing_roots
+            .into_iter()
+            .find(|root| normalized_path.as_path().starts_with(root.as_path()))
+        {
+            self.add_error_message(format!(
+                "{trimmed} is already accessible within the existing working directory {}.",
+                existing_root.display()
+            ));
+            return;
+        }
+
+        let mut additional_working_directories = self.config.additional_working_directories.clone();
+        additional_working_directories.push(normalized_path.clone());
+
+        if !self.submit_op(AppCommand::override_turn_context(
+            /*cwd*/ None,
+            /*approval_policy*/ None,
+            /*approvals_reviewer*/ None,
+            /*sandbox_policy*/ None,
+            /*windows_sandbox_level*/ None,
+            Some(additional_working_directories.clone()),
+            /*model*/ None,
+            /*effort*/ None,
+            /*summary*/ None,
+            /*service_tier*/ None,
+            /*collaboration_mode*/ None,
+            /*personality*/ None,
+        )) {
+            self.add_error_message(
+                "Failed to add a working directory to the current session.".to_string(),
+            );
+            return;
+        }
+
+        self.config.additional_working_directories = additional_working_directories;
+        self.add_info_message(
+            format!(
+                "Added {} as a working directory for this session.",
+                normalized_path.display()
+            ),
+            Some("Use /permissions to manage workspace access.".to_string()),
+        );
     }
 
     fn show_rename_prompt(&mut self) {
@@ -7701,6 +7801,7 @@ impl ChatWidget {
                     /*approvals_reviewer*/ None,
                     /*sandbox_policy*/ None,
                     /*windows_sandbox_level*/ None,
+                    /*additional_working_directories*/ None,
                     Some(switch_model_for_events.clone()),
                     Some(Some(default_effort)),
                     /*summary*/ None,
@@ -7826,6 +7927,7 @@ impl ChatWidget {
                             /*approvals_reviewer*/ None,
                             /*sandbox_policy*/ None,
                             /*windows_sandbox_level*/ None,
+                            /*additional_working_directories*/ None,
                             /*model*/ None,
                             /*effort*/ None,
                             /*summary*/ None,
@@ -8811,6 +8913,7 @@ impl ChatWidget {
                     Some(approvals_reviewer),
                     Some(sandbox_clone.clone()),
                     /*windows_sandbox_level*/ None,
+                    /*additional_working_directories*/ None,
                     /*model*/ None,
                     /*effort*/ None,
                     /*summary*/ None,
@@ -9620,6 +9723,7 @@ impl ChatWidget {
                 /*approvals_reviewer*/ None,
                 /*sandbox_policy*/ None,
                 /*windows_sandbox_level*/ None,
+                /*additional_working_directories*/ None,
                 /*model*/ None,
                 /*effort*/ None,
                 /*summary*/ None,

@@ -184,11 +184,6 @@ pub async fn read_project_docs(config: &Config) -> std::io::Result<Option<String
 /// directory (inclusive). Symlinks are allowed. When `project_doc_max_bytes`
 /// is zero, returns an empty list.
 pub fn discover_project_doc_paths(config: &Config) -> std::io::Result<Vec<PathBuf>> {
-    let mut dir = config.cwd.to_path_buf();
-    if let Ok(canon) = normalize_path(&dir) {
-        dir = canon;
-    }
-
     let mut merged = TomlValue::Table(toml::map::Map::new());
     for layer in config.config_layer_stack.get_layers(
         ConfigLayerStackOrdering::LowestPrecedenceFirst,
@@ -207,10 +202,41 @@ pub fn discover_project_doc_paths(config: &Config) -> std::io::Result<Vec<PathBu
             default_project_root_markers()
         }
     };
+    let candidate_filenames = candidate_filenames(config);
+    let mut found = discover_project_doc_paths_for_directory(
+        config.cwd.to_path_buf(),
+        &project_root_markers,
+        &candidate_filenames,
+    )?;
+
+    for additional_working_directory in &config.additional_working_directories {
+        for path in discover_project_doc_paths_for_directory(
+            additional_working_directory.to_path_buf(),
+            &project_root_markers,
+            &candidate_filenames,
+        )? {
+            if !found.contains(&path) {
+                found.push(path);
+            }
+        }
+    }
+
+    Ok(found)
+}
+
+fn discover_project_doc_paths_for_directory(
+    mut dir: PathBuf,
+    project_root_markers: &[String],
+    candidate_filenames: &[&str],
+) -> std::io::Result<Vec<PathBuf>> {
+    if let Ok(canon) = normalize_path(&dir) {
+        dir = canon;
+    }
+
     let mut project_root = None;
     if !project_root_markers.is_empty() {
         for ancestor in dir.ancestors() {
-            for marker in &project_root_markers {
+            for marker in project_root_markers {
                 let marker_path = ancestor.join(marker);
                 let marker_exists = match std::fs::metadata(&marker_path) {
                     Ok(_) => true,
@@ -247,16 +273,14 @@ pub fn discover_project_doc_paths(config: &Config) -> std::io::Result<Vec<PathBu
         vec![dir]
     };
 
-    let mut found: Vec<PathBuf> = Vec::new();
-    let candidate_filenames = candidate_filenames(config);
-    for d in search_dirs {
-        for name in &candidate_filenames {
-            let candidate = d.join(name);
+    let mut found = Vec::new();
+    for search_dir in search_dirs {
+        for name in candidate_filenames {
+            let candidate = search_dir.join(name);
             match std::fs::symlink_metadata(&candidate) {
                 Ok(md) => {
-                    let ft = md.file_type();
-                    // Allow regular files and symlinks; opening will later fail for dangling links.
-                    if ft.is_file() || ft.is_symlink() {
+                    let file_type = md.file_type();
+                    if file_type.is_file() || file_type.is_symlink() {
                         found.push(candidate);
                         break;
                     }
@@ -269,7 +293,6 @@ pub fn discover_project_doc_paths(config: &Config) -> std::io::Result<Vec<PathBu
 
     Ok(found)
 }
-
 fn candidate_filenames<'a>(config: &'a Config) -> Vec<&'a str> {
     let mut names: Vec<&'a str> =
         Vec::with_capacity(2 + config.project_doc_fallback_filenames.len());

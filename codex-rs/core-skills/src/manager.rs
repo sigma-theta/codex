@@ -26,6 +26,7 @@ use codex_config::SkillsConfig;
 #[derive(Debug, Clone)]
 pub struct SkillsLoadInput {
     pub cwd: PathBuf,
+    pub additional_working_directories: Vec<PathBuf>,
     pub effective_skill_roots: Vec<PathBuf>,
     pub config_layer_stack: ConfigLayerStack,
     pub bundled_skills_enabled: bool,
@@ -34,12 +35,14 @@ pub struct SkillsLoadInput {
 impl SkillsLoadInput {
     pub fn new(
         cwd: PathBuf,
+        additional_working_directories: Vec<PathBuf>,
         effective_skill_roots: Vec<PathBuf>,
         config_layer_stack: ConfigLayerStack,
         bundled_skills_enabled: bool,
     ) -> Self {
         Self {
             cwd,
+            additional_working_directories,
             effective_skill_roots,
             config_layer_stack,
             bundled_skills_enabled,
@@ -107,6 +110,7 @@ impl SkillsManager {
         let mut roots = skill_roots(
             &input.config_layer_stack,
             input.cwd.as_path(),
+            input.additional_working_directories.clone(),
             input.effective_skill_roots.clone(),
         );
         if !input.bundled_skills_enabled {
@@ -142,6 +146,7 @@ impl SkillsManager {
         let mut roots = skill_roots(
             &input.config_layer_stack,
             input.cwd.as_path(),
+            input.additional_working_directories.clone(),
             input.effective_skill_roots.clone(),
         );
         if !bundled_skills_enabled_from_stack(&input.config_layer_stack) {

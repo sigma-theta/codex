@@ -20,6 +20,7 @@ use codex_protocol::protocol::SandboxPolicy;
 use codex_protocol::request_permissions::RequestPermissionsResponse;
 use codex_protocol::request_user_input::RequestUserInputResponse;
 use codex_protocol::user_input::UserInput;
+use codex_utils_absolute_path::AbsolutePathBuf;
 use serde::Serialize;
 use serde_json::Value;
 
@@ -58,6 +59,7 @@ pub(crate) enum AppCommandView<'a> {
         approvals_reviewer: &'a Option<ApprovalsReviewer>,
         sandbox_policy: &'a Option<SandboxPolicy>,
         windows_sandbox_level: &'a Option<WindowsSandboxLevel>,
+        additional_working_directories: &'a Option<Vec<AbsolutePathBuf>>,
         model: &'a Option<String>,
         effort: &'a Option<Option<ReasoningEffortConfig>>,
         summary: &'a Option<ReasoningSummaryConfig>,
@@ -176,6 +178,7 @@ impl AppCommand {
         approvals_reviewer: Option<ApprovalsReviewer>,
         sandbox_policy: Option<SandboxPolicy>,
         windows_sandbox_level: Option<WindowsSandboxLevel>,
+        additional_working_directories: Option<Vec<AbsolutePathBuf>>,
         model: Option<String>,
         effort: Option<Option<ReasoningEffortConfig>>,
         summary: Option<ReasoningSummaryConfig>,
@@ -189,6 +192,7 @@ impl AppCommand {
             approvals_reviewer,
             sandbox_policy,
             windows_sandbox_level,
+            additional_working_directories,
             model,
             effort,
             summary,
@@ -331,6 +335,7 @@ impl AppCommand {
                 approvals_reviewer,
                 sandbox_policy,
                 windows_sandbox_level,
+                additional_working_directories,
                 model,
                 effort,
                 summary,
@@ -343,6 +348,7 @@ impl AppCommand {
                 approvals_reviewer,
                 sandbox_policy,
                 windows_sandbox_level,
+                additional_working_directories,
                 model,
                 effort,
                 summary,
