@@ -1,6 +1,9 @@
-use rand::prelude::IndexedRandom;
+use std::time::Duration;
+
+use rand::Rng as _;
 
 pub(super) const DEFAULT_WORKING_STATUS: &str = "Working";
+pub(super) const WORKING_STATUS_ROTATION_INTERVAL: Duration = Duration::from_secs(10);
 
 const WORKING_STATUS_WORDS: &[&str] = &[
     "Accomplishing",
@@ -199,11 +202,26 @@ pub(super) fn load_working_status_words() -> Vec<String> {
         .collect()
 }
 
-pub(super) fn choose_working_status_word(words: &[String]) -> String {
-    words
-        .choose(&mut rand::rng())
-        .cloned()
-        .unwrap_or_else(|| DEFAULT_WORKING_STATUS.to_string())
+pub(super) fn choose_working_status_word_index(words: &[String]) -> usize {
+    if words.is_empty() {
+        0
+    } else {
+        rand::rng().random_range(0..words.len())
+    }
+}
+
+pub(super) fn working_status_word_at(
+    words: &[String],
+    starting_index: usize,
+    elapsed: Duration,
+) -> String {
+    if words.is_empty() {
+        return DEFAULT_WORKING_STATUS.to_string();
+    }
+
+    let steps = (elapsed.as_secs() / WORKING_STATUS_ROTATION_INTERVAL.as_secs()) as usize;
+    let index = (starting_index + steps) % words.len();
+    words[index].clone()
 }
 
 #[cfg(test)]
@@ -224,6 +242,35 @@ mod tests {
 
     #[test]
     fn falls_back_to_default_when_list_is_empty() {
-        assert_eq!(choose_working_status_word(&[]), DEFAULT_WORKING_STATUS);
+        assert_eq!(
+            working_status_word_at(&[], 0, Duration::from_secs(30)),
+            DEFAULT_WORKING_STATUS
+        );
+    }
+
+    #[test]
+    fn rotates_every_ten_seconds() {
+        let words = vec![
+            "Working".to_string(),
+            "Thinking".to_string(),
+            "Computing".to_string(),
+        ];
+
+        assert_eq!(
+            working_status_word_at(&words, 1, Duration::from_secs(0)),
+            "Thinking"
+        );
+        assert_eq!(
+            working_status_word_at(&words, 1, Duration::from_secs(9)),
+            "Thinking"
+        );
+        assert_eq!(
+            working_status_word_at(&words, 1, Duration::from_secs(10)),
+            "Computing"
+        );
+        assert_eq!(
+            working_status_word_at(&words, 1, Duration::from_secs(20)),
+            "Working"
+        );
     }
 }

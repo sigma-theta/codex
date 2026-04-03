@@ -366,8 +366,10 @@ use self::status_surfaces::CachedProjectRootName;
 use self::status_surfaces::TerminalTitleStatusKind;
 mod working_status_words;
 use self::working_status_words::DEFAULT_WORKING_STATUS;
-use self::working_status_words::choose_working_status_word;
+use self::working_status_words::WORKING_STATUS_ROTATION_INTERVAL;
+use self::working_status_words::choose_working_status_word_index;
 use self::working_status_words::load_working_status_words;
+use self::working_status_words::working_status_word_at;
 use crate::streaming::chunking::AdaptiveChunkingPolicy;
 use crate::streaming::commit_tick::CommitTickScope;
 use crate::streaming::commit_tick::run_commit_tick;
@@ -843,6 +845,10 @@ pub(crate) struct ChatWidget {
     working_status_words: Vec<String>,
     // Active label reused for the current task across header/title restores.
     current_working_status_word: String,
+    // Starting word index for the current task's 10s rotation.
+    current_working_status_word_index: usize,
+    // Time origin for the current task's working-word rotation.
+    current_working_status_word_started_at: Instant,
     // True once the current turn has claimed a random working label.
     has_current_turn_working_status_word: bool,
     // Previous status header to restore after a transient stream retry.
@@ -1681,20 +1687,69 @@ impl ChatWidget {
         self.refresh_terminal_title();
     }
 
-    fn choose_next_working_status_word(&mut self) {
-        self.current_working_status_word = choose_working_status_word(&self.working_status_words);
+    fn choose_next_working_status_word(&mut self, now: Instant) {
+        self.current_working_status_word_index =
+            choose_working_status_word_index(&self.working_status_words);
+        self.current_working_status_word_started_at = now;
+        self.current_working_status_word = working_status_word_at(
+            &self.working_status_words,
+            self.current_working_status_word_index,
+            Duration::ZERO,
+        );
         self.has_current_turn_working_status_word = true;
     }
 
-    fn ensure_current_turn_working_status_word(&mut self) {
+    fn ensure_current_turn_working_status_word(&mut self, now: Instant) {
         if !self.has_current_turn_working_status_word {
-            self.choose_next_working_status_word();
+            self.choose_next_working_status_word(now);
         }
     }
 
     fn restore_working_status_header(&mut self) {
         self.terminal_title_status_kind = TerminalTitleStatusKind::Working;
         self.set_status_header(self.current_working_status_word.clone());
+    }
+
+    fn refresh_working_status_word_at(&mut self, now: Instant) {
+        if !self.has_current_turn_working_status_word {
+            return;
+        }
+
+        let previous_word = self.current_working_status_word.clone();
+        let elapsed = now.saturating_duration_since(self.current_working_status_word_started_at);
+        let next_word = working_status_word_at(
+            &self.working_status_words,
+            self.current_working_status_word_index,
+            elapsed,
+        );
+        if next_word == previous_word {
+            return;
+        }
+
+        self.current_working_status_word = next_word;
+        if self.terminal_title_status_kind == TerminalTitleStatusKind::Working
+            && self.current_status.header == previous_word
+        {
+            self.restore_working_status_header();
+        } else if self.terminal_title_status_kind == TerminalTitleStatusKind::Working {
+            self.refresh_terminal_title();
+        }
+    }
+
+    fn schedule_next_working_status_refresh(&self, now: Instant) {
+        if !self.has_current_turn_working_status_word
+            || self.terminal_title_status_kind != TerminalTitleStatusKind::Working
+        {
+            return;
+        }
+
+        let elapsed = now.saturating_duration_since(self.current_working_status_word_started_at);
+        let elapsed_ms = elapsed.as_millis();
+        let interval_ms = WORKING_STATUS_ROTATION_INTERVAL.as_millis();
+        let remaining_ms = interval_ms - (elapsed_ms % interval_ms);
+        let remaining_ms = u64::try_from(remaining_ms).unwrap_or(u64::MAX);
+        self.frame_requester
+            .schedule_frame_in(Duration::from_millis(remaining_ms.max(1)));
     }
 
     fn restore_reasoning_status_header(&mut self) {
@@ -2313,7 +2368,7 @@ impl ChatWidget {
         self.bottom_pane.clear_quit_shortcut_hint();
         self.quit_shortcut_expires_at = None;
         self.quit_shortcut_key = None;
-        self.ensure_current_turn_working_status_word();
+        self.ensure_current_turn_working_status_word(Instant::now());
         self.terminal_title_status_kind = TerminalTitleStatusKind::Working;
         self.update_task_running_state();
         self.retry_status_header = None;
@@ -4047,6 +4102,9 @@ impl ChatWidget {
     }
 
     pub(crate) fn pre_draw_tick(&mut self) {
+        let now = Instant::now();
+        self.refresh_working_status_word_at(now);
+        self.schedule_next_working_status_refresh(now);
         self.bottom_pane.pre_draw_tick();
         if self.should_animate_terminal_title_spinner() {
             self.refresh_terminal_title();
@@ -4629,6 +4687,7 @@ impl ChatWidget {
         let queued_message_edit_binding = queued_message_edit_binding_for_terminal(terminal_info());
         let working_status_words = load_working_status_words();
         let current_working_status_word = DEFAULT_WORKING_STATUS.to_string();
+        let current_working_status_word_started_at = Instant::now();
         let mut widget = Self {
             app_event_tx: app_event_tx.clone(),
             frame_requester: frame_requester.clone(),
@@ -4700,6 +4759,8 @@ impl ChatWidget {
             terminal_title_status_kind: TerminalTitleStatusKind::Working,
             working_status_words,
             current_working_status_word,
+            current_working_status_word_index: 0,
+            current_working_status_word_started_at,
             has_current_turn_working_status_word: false,
             retry_status_header: None,
             pending_status_indicator_restore: false,
@@ -5665,7 +5726,7 @@ impl ChatWidget {
             });
         }
 
-        self.choose_next_working_status_word();
+        self.choose_next_working_status_word(Instant::now());
         self.restore_working_status_header();
 
         let mentions = collect_tool_mentions(&text, &HashMap::new());

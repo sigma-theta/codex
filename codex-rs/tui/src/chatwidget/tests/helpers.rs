@@ -208,6 +208,8 @@ pub(super) async fn make_chatwidget_manual(
         terminal_title_status_kind: TerminalTitleStatusKind::Working,
         working_status_words: vec!["Working".to_string()],
         current_working_status_word: "Working".to_string(),
+        current_working_status_word_index: 0,
+        current_working_status_word_started_at: Instant::now(),
         has_current_turn_working_status_word: false,
         last_copyable_output: None,
         pending_turn_copyable_output: None,
