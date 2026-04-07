@@ -254,6 +254,12 @@ const MULTI_AGENT_ENABLE_NOTICE: &str = "Subagents will be enabled in the next s
 const PLAN_MODE_REASONING_SCOPE_TITLE: &str = "Apply reasoning change";
 const PLAN_MODE_REASONING_SCOPE_PLAN_ONLY: &str = "Apply to Plan mode override";
 const PLAN_MODE_REASONING_SCOPE_ALL_MODES: &str = "Apply to global default and Plan mode override";
+const ADD_DIR_PROMPT_TITLE: &str = "Add working directory";
+const ADD_DIR_PROMPT_PLACEHOLDER: &str = "Type a directory path and press Enter";
+const ADD_DIR_CONFIRM_TITLE: &str = "Add working directory?";
+const ADD_DIR_CONFIRM_SESSION_ONLY: &str = "Yes, for this session";
+const ADD_DIR_CONFIRM_REMEMBER: &str = "Yes, and remember this directory";
+const ADD_DIR_CONFIRM_CANCEL: &str = "No";
 const CONNECTORS_SELECTION_VIEW_ID: &str = "connectors-selection";
 const TUI_STUB_MESSAGE: &str = "Not available in TUI yet.";
 
@@ -5750,39 +5756,41 @@ impl ChatWidget {
 
     fn handle_add_dir(&mut self, input: Option<String>) {
         let Some(input) = input else {
-            self.add_info_message(
-                "Interactive directory entry is not available yet. Run `/add-dir <path>` for now."
-                    .to_string(),
-                Some("Use /permissions to manage workspace access.".to_string()),
-            );
+            self.open_add_working_directory_prompt();
             return;
         };
 
+        match self.validate_add_working_directory_input(&input) {
+            Ok(path) => self.show_add_working_directory_confirmation(path),
+            Err(message) => self.add_error_message(message),
+        }
+    }
+
+    fn open_add_working_directory_prompt(&mut self) {
+        let tx = self.app_event_tx.clone();
+        let view = CustomPromptView::new(
+            ADD_DIR_PROMPT_TITLE.to_string(),
+            ADD_DIR_PROMPT_PLACEHOLDER.to_string(),
+            Some(format!("Current directory: {}", self.config.cwd.display())),
+            Box::new(move |input: String| {
+                tx.send(AppEvent::AddWorkingDirectoryInputSubmitted { input });
+            }),
+        );
+
+        self.bottom_pane.show_view(Box::new(view));
+    }
+
+    fn validate_add_working_directory_input(&self, input: &str) -> Result<AbsolutePathBuf, String> {
         let trimmed = input.trim();
         if trimmed.is_empty() {
-            self.add_error_message("Please provide a directory path.".to_string());
-            return;
+            return Err("Please provide a directory path.".to_string());
         }
 
-        let normalized_path =
-            match AbsolutePathBuf::resolve_path_against_base(trimmed, &self.config.cwd) {
-                Ok(path) => path,
-                Err(err) => {
-                    self.add_error_message(format!("Failed to resolve {trimmed}: {err}"));
-                    return;
-                }
-            };
+        let normalized_path = AbsolutePathBuf::resolve_path_against_base(trimmed, &self.config.cwd)
+            .map_err(|err| format!("Failed to resolve {trimmed}: {err}"))?;
 
-        let metadata = match std::fs::metadata(normalized_path.as_path()) {
-            Ok(metadata) => metadata,
-            Err(_) => {
-                self.add_error_message(format!(
-                    "Path {} was not found.",
-                    normalized_path.display()
-                ));
-                return;
-            }
-        };
+        let metadata = std::fs::metadata(normalized_path.as_path())
+            .map_err(|_| format!("Path {} was not found.", normalized_path.display()))?;
 
         if !metadata.is_dir() {
             let suggestion = normalized_path.parent().map_or_else(String::new, |parent| {
@@ -5791,54 +5799,91 @@ impl ChatWidget {
                     parent.display()
                 )
             });
-            self.add_error_message(format!("{trimmed} is not a directory.{suggestion}"));
-            return;
+            return Err(format!("{trimmed} is not a directory.{suggestion}"));
         }
 
-        let existing_roots = std::iter::once(&self.config.cwd)
-            .chain(self.config.additional_working_directories.iter());
-        if let Some(existing_root) = existing_roots
-            .into_iter()
-            .find(|root| normalized_path.as_path().starts_with(root.as_path()))
+        if let Some(existing_root) = std::iter::once(self.config.cwd.as_path())
+            .chain(
+                self.config
+                    .additional_working_directories
+                    .iter()
+                    .map(AbsolutePathBuf::as_path),
+            )
+            .find(|root| normalized_path.as_path().starts_with(root))
         {
-            self.add_error_message(format!(
+            return Err(format!(
                 "{trimmed} is already accessible within the existing working directory {}.",
                 existing_root.display()
             ));
-            return;
         }
 
-        let mut additional_working_directories = self.config.additional_working_directories.clone();
-        additional_working_directories.push(normalized_path.clone());
+        Ok(normalized_path)
+    }
 
-        if !self.submit_op(AppCommand::override_turn_context(
-            /*cwd*/ None,
-            /*approval_policy*/ None,
-            /*approvals_reviewer*/ None,
-            /*sandbox_policy*/ None,
-            /*windows_sandbox_level*/ None,
-            Some(additional_working_directories.clone()),
-            /*model*/ None,
-            /*effort*/ None,
-            /*summary*/ None,
-            /*service_tier*/ None,
-            /*collaboration_mode*/ None,
-            /*personality*/ None,
-        )) {
-            self.add_error_message(
-                "Failed to add a working directory to the current session.".to_string(),
-            );
-            return;
-        }
+    fn show_add_working_directory_confirmation(&mut self, path: AbsolutePathBuf) {
+        let session_path = path.clone();
+        let remember_path = path.clone();
+        let path_display = path.display().to_string();
+        let cancel_path_display = path_display.clone();
+        let items = vec![
+            SelectionItem {
+                name: ADD_DIR_CONFIRM_SESSION_ONLY.to_string(),
+                description: Some("Add this directory until the current session ends.".to_string()),
+                actions: vec![Box::new(move |tx| {
+                    tx.send(AppEvent::ConfirmAddWorkingDirectory {
+                        path: session_path.clone(),
+                        persist: false,
+                    });
+                })],
+                dismiss_on_select: true,
+                ..Default::default()
+            },
+            SelectionItem {
+                name: ADD_DIR_CONFIRM_REMEMBER.to_string(),
+                description: Some("Add it now and save it to local settings.".to_string()),
+                actions: vec![Box::new(move |tx| {
+                    tx.send(AppEvent::ConfirmAddWorkingDirectory {
+                        path: remember_path.clone(),
+                        persist: true,
+                    });
+                })],
+                dismiss_on_select: true,
+                ..Default::default()
+            },
+            SelectionItem {
+                name: ADD_DIR_CONFIRM_CANCEL.to_string(),
+                description: Some("Keep the current workspace unchanged.".to_string()),
+                actions: vec![Box::new(move |tx| {
+                    tx.send(AppEvent::InsertHistoryCell(Box::new(
+                        history_cell::new_info_event(
+                            format!("Did not add {cancel_path_display} as a working directory."),
+                            /*hint*/ None,
+                        ),
+                    )));
+                })],
+                dismiss_on_select: true,
+                ..Default::default()
+            },
+        ];
 
+        self.bottom_pane.show_selection_view(SelectionViewParams {
+            title: Some(ADD_DIR_CONFIRM_TITLE.to_string()),
+            subtitle: Some(path_display),
+            footer_hint: Some(standard_popup_hint_line()),
+            items,
+            ..Default::default()
+        });
+    }
+
+    pub(crate) fn retry_add_working_directory_validation(&mut self, input: String) {
+        self.handle_add_dir(Some(input));
+    }
+
+    pub(crate) fn set_additional_working_directories(
+        &mut self,
+        additional_working_directories: Vec<AbsolutePathBuf>,
+    ) {
         self.config.additional_working_directories = additional_working_directories;
-        self.add_info_message(
-            format!(
-                "Added {} as a working directory for this session.",
-                normalized_path.display()
-            ),
-            Some("Use /permissions to manage workspace access.".to_string()),
-        );
     }
 
     fn show_rename_prompt(&mut self) {

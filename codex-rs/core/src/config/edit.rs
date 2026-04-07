@@ -1022,15 +1022,23 @@ impl ConfigEditsBuilder {
         self
     }
 
-    pub fn set_realtime_voice(mut self, voice: Option<&str>) -> Self {
-        let segments = vec!["realtime".to_string(), "voice".to_string()];
-        match voice {
-            Some(voice) => self.edits.push(ConfigEdit::SetPath {
-                segments,
-                value: value(voice),
-            }),
-            None => self.edits.push(ConfigEdit::ClearPath { segments }),
-        }
+    pub fn set_additional_directories<I, P>(mut self, directories: I) -> Self
+    where
+        I: IntoIterator<Item = P>,
+        P: AsRef<Path>,
+    {
+        let segments = vec![
+            "permissions".to_string(),
+            "additionalDirectories".to_string(),
+        ];
+        let directories = directories
+            .into_iter()
+            .map(|path| path.as_ref().to_string_lossy().to_string())
+            .collect::<toml_edit::Array>();
+        self.edits.push(ConfigEdit::SetPath {
+            segments,
+            value: TomlItem::Value(directories.into()),
+        });
         self
     }
 

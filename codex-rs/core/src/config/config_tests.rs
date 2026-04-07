@@ -419,6 +419,7 @@ allow_upstream_proxy = false
     assert_eq!(
         cfg.permissions.expect("[permissions] should deserialize"),
         PermissionsToml {
+            additional_directories: Vec::new(),
             entries: BTreeMap::from([(
                 "workspace".to_string(),
                 PermissionProfileToml {
@@ -472,6 +473,7 @@ fn permissions_profiles_network_populates_runtime_network_proxy_spec() -> std::i
         ConfigToml {
             default_permissions: Some("workspace".to_string()),
             permissions: Some(PermissionsToml {
+                additional_directories: Vec::new(),
                 entries: BTreeMap::from([(
                     "workspace".to_string(),
                     PermissionProfileToml {
@@ -519,6 +521,7 @@ fn permissions_profiles_network_disabled_by_default_does_not_start_proxy() -> st
         ConfigToml {
             default_permissions: Some("workspace".to_string()),
             permissions: Some(PermissionsToml {
+                additional_directories: Vec::new(),
                 entries: BTreeMap::from([(
                     "workspace".to_string(),
                     PermissionProfileToml {
@@ -563,6 +566,7 @@ fn default_permissions_profile_populates_runtime_sandbox_policy() -> std::io::Re
     let cfg = ConfigToml {
         default_permissions: Some("workspace".to_string()),
         permissions: Some(PermissionsToml {
+            additional_directories: Vec::new(),
             entries: BTreeMap::from([(
                 "workspace".to_string(),
                 PermissionProfileToml {
@@ -656,6 +660,7 @@ fn permissions_profiles_require_default_permissions() -> std::io::Result<()> {
     let err = Config::load_from_base_config_with_overrides(
         ConfigToml {
             permissions: Some(PermissionsToml {
+                additional_directories: Vec::new(),
                 entries: BTreeMap::from([(
                     "workspace".to_string(),
                     PermissionProfileToml {
@@ -698,6 +703,7 @@ fn permissions_profiles_reject_writes_outside_workspace_root() -> std::io::Resul
         ConfigToml {
             default_permissions: Some("workspace".to_string()),
             permissions: Some(PermissionsToml {
+                additional_directories: Vec::new(),
                 entries: BTreeMap::from([(
                     "workspace".to_string(),
                     PermissionProfileToml {
@@ -740,6 +746,7 @@ fn permissions_profiles_reject_nested_entries_for_non_project_roots() -> std::io
         ConfigToml {
             default_permissions: Some("workspace".to_string()),
             permissions: Some(PermissionsToml {
+                additional_directories: Vec::new(),
                 entries: BTreeMap::from([(
                     "workspace".to_string(),
                     PermissionProfileToml {
@@ -783,6 +790,7 @@ fn load_workspace_permission_profile(profile: PermissionProfileToml) -> std::io:
         ConfigToml {
             default_permissions: Some("workspace".to_string()),
             permissions: Some(PermissionsToml {
+                additional_directories: Vec::new(),
                 entries: BTreeMap::from([("workspace".to_string(), profile)]),
             }),
             ..Default::default()
@@ -937,6 +945,7 @@ fn permissions_profiles_reject_project_root_parent_traversal() -> std::io::Resul
         ConfigToml {
             default_permissions: Some("workspace".to_string()),
             permissions: Some(PermissionsToml {
+                additional_directories: Vec::new(),
                 entries: BTreeMap::from([(
                     "workspace".to_string(),
                     PermissionProfileToml {
@@ -981,6 +990,7 @@ fn permissions_profiles_allow_network_enablement() -> std::io::Result<()> {
         ConfigToml {
             default_permissions: Some("workspace".to_string()),
             permissions: Some(PermissionsToml {
+                additional_directories: Vec::new(),
                 entries: BTreeMap::from([(
                     "workspace".to_string(),
                     PermissionProfileToml {
@@ -4574,6 +4584,7 @@ fn test_precedence_fixture_with_o3_profile() -> std::io::Result<()> {
                 windows_sandbox_mode: None,
                 windows_sandbox_private_desktop: true,
             },
+            additional_working_directories: Vec::new(),
             approvals_reviewer: ApprovalsReviewer::User,
             enforce_residency: Constrained::allow_any(/*initial_value*/ None),
             user_instructions: None,
@@ -4723,6 +4734,7 @@ fn test_precedence_fixture_with_gpt3_profile() -> std::io::Result<()> {
             windows_sandbox_mode: None,
             windows_sandbox_private_desktop: true,
         },
+        additional_working_directories: Vec::new(),
         approvals_reviewer: ApprovalsReviewer::User,
         enforce_residency: Constrained::allow_any(/*initial_value*/ None),
         user_instructions: None,
@@ -4870,6 +4882,7 @@ fn test_precedence_fixture_with_zdr_profile() -> std::io::Result<()> {
             windows_sandbox_mode: None,
             windows_sandbox_private_desktop: true,
         },
+        additional_working_directories: Vec::new(),
         approvals_reviewer: ApprovalsReviewer::User,
         enforce_residency: Constrained::allow_any(/*initial_value*/ None),
         user_instructions: None,
@@ -5003,6 +5016,7 @@ fn test_precedence_fixture_with_gpt5_profile() -> std::io::Result<()> {
             windows_sandbox_mode: None,
             windows_sandbox_private_desktop: true,
         },
+        additional_working_directories: Vec::new(),
         approvals_reviewer: ApprovalsReviewer::User,
         enforce_residency: Constrained::allow_any(/*initial_value*/ None),
         user_instructions: None,
