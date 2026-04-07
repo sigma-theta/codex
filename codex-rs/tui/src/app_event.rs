@@ -307,6 +307,17 @@ pub(crate) enum AppEvent {
         service_tier: Option<ServiceTier>,
     },
 
+    /// Retry `/add-dir` validation after collecting a path from the prompt UI.
+    AddWorkingDirectoryInputSubmitted {
+        input: String,
+    },
+
+    /// Apply a validated working-directory addition to the live session and optionally persist it.
+    ConfirmAddWorkingDirectory {
+        path: AbsolutePathBuf,
+        persist: bool,
+    },
+
     /// Open the device picker for a realtime microphone or speaker.
     OpenRealtimeAudioDeviceSelection {
         kind: RealtimeAudioDeviceKind,

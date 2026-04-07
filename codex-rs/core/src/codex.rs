@@ -1151,6 +1151,7 @@ impl SessionConfiguration {
                 self.sandbox_policy.get(),
                 &self.cwd,
             );
+        let mut additional_working_directories_changed = false;
         if let Some(collaboration_mode) = updates.collaboration_mode.clone() {
             next_configuration.collaboration_mode = collaboration_mode;
         }
@@ -1181,6 +1182,8 @@ impl SessionConfiguration {
         }
         if let Some(additional_working_directories) = updates.additional_working_directories.clone()
         {
+            additional_working_directories_changed =
+                additional_working_directories != self.additional_working_directories;
             next_configuration.additional_working_directories = additional_working_directories;
         }
 
@@ -1208,6 +1211,46 @@ impl SessionConfiguration {
                     next_configuration.sandbox_policy.get(),
                     &next_configuration.cwd,
                 );
+        }
+        if additional_working_directories_changed {
+            if file_system_policy_matches_legacy
+                && let SandboxPolicy::WorkspaceWrite {
+                    writable_roots,
+                    read_only_access,
+                    network_access,
+                    exclude_tmpdir_env_var,
+                    exclude_slash_tmp,
+                } = next_configuration.sandbox_policy.get().clone()
+            {
+                let mut writable_roots = writable_roots;
+                for path in &next_configuration.additional_working_directories {
+                    if !writable_roots.iter().any(|existing| existing == path) {
+                        writable_roots.push(path.clone());
+                    }
+                }
+                next_configuration
+                    .sandbox_policy
+                    .set(SandboxPolicy::WorkspaceWrite {
+                        writable_roots,
+                        read_only_access,
+                        network_access,
+                        exclude_tmpdir_env_var,
+                        exclude_slash_tmp,
+                    })?;
+                next_configuration.file_system_sandbox_policy =
+                    FileSystemSandboxPolicy::from_legacy_sandbox_policy(
+                        next_configuration.sandbox_policy.get(),
+                        &next_configuration.cwd,
+                    );
+            } else {
+                next_configuration.file_system_sandbox_policy = next_configuration
+                    .file_system_sandbox_policy
+                    .clone()
+                    .with_additional_writable_roots(
+                        next_configuration.cwd.as_path(),
+                        &next_configuration.additional_working_directories,
+                    );
+            }
         }
         if let Some(app_server_client_name) = updates.app_server_client_name.clone() {
             next_configuration.app_server_client_name = Some(app_server_client_name);

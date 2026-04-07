@@ -1288,6 +1288,15 @@
       "type": "object"
     },
     "PermissionsToml": {
+      "properties": {
+        "additionalDirectories": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
       "type": "object"
     },
     "Personality": {

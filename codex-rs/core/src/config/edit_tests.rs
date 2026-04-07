@@ -67,6 +67,23 @@ gpt-foo = 4
 }
 
 #[test]
+fn set_additional_directories_writes_permissions_array() {
+    let tmp = tempdir().expect("tmpdir");
+    let codex_home = tmp.path();
+
+    ConfigEditsBuilder::new(codex_home)
+        .set_additional_directories([PathBuf::from("/tmp/shared"), PathBuf::from("/tmp/lib")])
+        .apply_blocking()
+        .expect("persist");
+
+    let contents = std::fs::read_to_string(codex_home.join(CONFIG_TOML_FILE)).expect("read config");
+    let expected = r#"[permissions]
+additionalDirectories = ["/tmp/shared", "/tmp/lib"]
+"#;
+    assert_eq!(contents, expected);
+}
+
+#[test]
 fn set_skill_config_writes_disabled_entry() {
     let tmp = tempdir().expect("tmpdir");
     let codex_home = tmp.path();

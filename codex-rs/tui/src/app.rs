@@ -82,6 +82,7 @@ use codex_app_server_protocol::ThreadRollbackResponse;
 use codex_app_server_protocol::Turn;
 use codex_app_server_protocol::TurnError as AppServerTurnError;
 use codex_app_server_protocol::TurnStatus;
+use codex_config::CONFIG_TOML_FILE;
 use codex_config::types::ApprovalsReviewer;
 use codex_config::types::ModelAvailabilityNuxConfig;
 use codex_core::config::Config;
@@ -478,6 +479,34 @@ fn emit_system_bwrap_warning(app_event_tx: &AppEventSender) {
     app_event_tx.send(AppEvent::InsertHistoryCell(Box::new(
         history_cell::new_warning_event(message),
     )));
+}
+
+fn additional_directories_from_toml(config: &TomlValue, profile: Option<&str>) -> Vec<PathBuf> {
+    let root = match profile {
+        Some(profile) => config
+            .get("profiles")
+            .and_then(TomlValue::as_table)
+            .and_then(|profiles| profiles.get(profile))
+            .and_then(TomlValue::as_table),
+        None => config.as_table(),
+    };
+
+    root.and_then(|table| table.get("permissions"))
+        .and_then(TomlValue::as_table)
+        .and_then(|permissions| {
+            permissions
+                .get("additionalDirectories")
+                .or_else(|| permissions.get("additional_directories"))
+        })
+        .and_then(TomlValue::as_array)
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(TomlValue::as_str)
+                .map(PathBuf::from)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1102,6 +1131,149 @@ impl App {
                 action,
                 "failed to refresh config before thread transition; continuing with current in-memory config"
             );
+        }
+    }
+
+    async fn load_persisted_additional_directories(&self) -> Result<Vec<PathBuf>> {
+        let config_path = self.config.codex_home.join(CONFIG_TOML_FILE);
+        let raw = match tokio::fs::read_to_string(&config_path).await {
+            Ok(raw) => raw,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(err) => {
+                return Err(err).wrap_err_with(|| {
+                    format!(
+                        "Failed to read persisted config from {}",
+                        config_path.display()
+                    )
+                });
+            }
+        };
+
+        let config: TomlValue = toml::from_str(&raw).wrap_err_with(|| {
+            format!(
+                "Failed to parse persisted config from {}",
+                config_path.display()
+            )
+        })?;
+
+        Ok(additional_directories_from_toml(
+            &config,
+            self.active_profile.as_deref(),
+        ))
+    }
+
+    async fn confirm_add_working_directory(&mut self, path: AbsolutePathBuf, persist: bool) {
+        let mut additional_working_directories = self
+            .chat_widget
+            .config_ref()
+            .additional_working_directories
+            .clone();
+        if !additional_working_directories.contains(&path) {
+            additional_working_directories.push(path.clone());
+        }
+
+        let op = AppCommand::override_turn_context(
+            /*cwd*/ None,
+            /*approval_policy*/ None,
+            /*approvals_reviewer*/ None,
+            /*sandbox_policy*/ None,
+            /*windows_sandbox_level*/ None,
+            Some(additional_working_directories.clone()),
+            /*model*/ None,
+            /*effort*/ None,
+            /*summary*/ None,
+            /*service_tier*/ None,
+            /*collaboration_mode*/ None,
+            /*personality*/ None,
+        );
+        let replay_state_op =
+            ThreadEventStore::op_can_change_pending_replay_state(&op).then(|| op.clone());
+        if !self.chat_widget.submit_op(op) {
+            self.chat_widget.add_error_message(
+                "Failed to add a working directory to the current session.".to_string(),
+            );
+            return;
+        }
+
+        if let Some(op) = replay_state_op.as_ref() {
+            self.note_active_thread_outbound_op(op).await;
+            self.refresh_pending_thread_approvals().await;
+        }
+
+        self.config.additional_working_directories = additional_working_directories.clone();
+        self.chat_widget
+            .set_additional_working_directories(additional_working_directories.clone());
+
+        #[cfg(target_os = "windows")]
+        self.app_event_tx
+            .send(AppEvent::BeginWindowsSandboxGrantReadRoot {
+                path: path.display().to_string(),
+            });
+
+        let hint = Some("Use /permissions to manage workspace access.".to_string());
+        let path_display = path.display();
+        if !persist {
+            self.chat_widget.add_info_message(
+                format!("Added {path_display} as a working directory for this session."),
+                hint,
+            );
+            return;
+        }
+
+        let mut persisted_directories = match self.load_persisted_additional_directories().await {
+            Ok(directories) => directories,
+            Err(err) => {
+                self.chat_widget.add_info_message(
+                    format!(
+                        "Added {path_display} as a working directory for this session, but failed to save it to local settings: {err}"
+                    ),
+                    hint,
+                );
+                return;
+            }
+        };
+        let persisted_path = path.as_path().to_path_buf();
+        if !persisted_directories.contains(&persisted_path) {
+            persisted_directories.push(persisted_path);
+        }
+
+        let profile = self.active_profile.as_deref();
+        match ConfigEditsBuilder::new(&self.config.codex_home)
+            .with_profile(profile)
+            .set_additional_directories(persisted_directories.iter())
+            .apply()
+            .await
+        {
+            Ok(()) => {
+                if let Err(err) = self.refresh_in_memory_config_from_disk().await {
+                    tracing::warn!(
+                        error = %err,
+                        "failed to refresh config after persisting additional working directory"
+                    );
+                }
+                self.config.additional_working_directories = additional_working_directories.clone();
+                self.chat_widget
+                    .set_additional_working_directories(additional_working_directories);
+                self.chat_widget.submit_op(AppCommand::reload_user_config());
+                self.chat_widget.add_info_message(
+                    format!(
+                        "Added {path_display} as a working directory and saved to local settings."
+                    ),
+                    hint,
+                );
+            }
+            Err(err) => {
+                tracing::error!(
+                    error = %err,
+                    "failed to persist additional working directory"
+                );
+                self.chat_widget.add_info_message(
+                    format!(
+                        "Added {path_display} as a working directory for this session, but failed to save it to local settings: {err}"
+                    ),
+                    hint,
+                );
+            }
         }
     }
 
@@ -4396,6 +4568,13 @@ impl App {
             }
             AppEvent::UpdatePersonality(personality) => {
                 self.on_update_personality(personality);
+            }
+            AppEvent::AddWorkingDirectoryInputSubmitted { input } => {
+                self.chat_widget
+                    .retry_add_working_directory_validation(input);
+            }
+            AppEvent::ConfirmAddWorkingDirectory { path, persist } => {
+                self.confirm_add_working_directory(path, persist).await;
             }
             AppEvent::OpenRealtimeAudioDeviceSelection { kind } => {
                 self.chat_widget.open_realtime_audio_device_selection(kind);

@@ -37,6 +37,7 @@ fn restricted_read_implicitly_allows_helper_executables() -> std::io::Result<()>
         ConfigToml {
             default_permissions: Some("workspace".to_string()),
             permissions: Some(PermissionsToml {
+                additional_directories: Vec::new(),
                 entries: BTreeMap::from([(
                     "workspace".to_string(),
                     PermissionProfileToml {

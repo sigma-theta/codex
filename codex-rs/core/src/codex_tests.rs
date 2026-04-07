@@ -1213,6 +1213,7 @@ async fn fork_startup_context_then_first_turn_diff_snapshot() -> anyhow::Result<
             approvals_reviewer: None,
             sandbox_policy: None,
             windows_sandbox_level: None,
+            additional_working_directories: None,
             model: None,
             effort: None,
             summary: None,
@@ -1816,6 +1817,7 @@ async fn set_rate_limits_retains_previous_credits() {
         file_system_sandbox_policy: config.permissions.file_system_sandbox_policy.clone(),
         network_sandbox_policy: config.permissions.network_sandbox_policy,
         windows_sandbox_level: WindowsSandboxLevel::from_config(&config),
+        additional_working_directories: config.additional_working_directories.clone(),
         cwd: config.cwd.clone(),
         codex_home: config.codex_home.clone(),
         thread_name: None,
@@ -1914,6 +1916,7 @@ async fn set_rate_limits_updates_plan_type_when_present() {
         file_system_sandbox_policy: config.permissions.file_system_sandbox_policy.clone(),
         network_sandbox_policy: config.permissions.network_sandbox_policy,
         windows_sandbox_level: WindowsSandboxLevel::from_config(&config),
+        additional_working_directories: config.additional_working_directories.clone(),
         cwd: config.cwd.clone(),
         codex_home: config.codex_home.clone(),
         thread_name: None,
@@ -2256,6 +2259,7 @@ pub(crate) async fn make_session_configuration_for_tests() -> SessionConfigurati
         file_system_sandbox_policy: config.permissions.file_system_sandbox_policy.clone(),
         network_sandbox_policy: config.permissions.network_sandbox_policy,
         windows_sandbox_level: WindowsSandboxLevel::from_config(&config),
+        additional_working_directories: config.additional_working_directories.clone(),
         cwd: config.cwd.clone(),
         codex_home: config.codex_home.clone(),
         thread_name: None,
@@ -2472,6 +2476,53 @@ async fn session_update_settings_keeps_runtime_cwds_absolute() {
 }
 
 #[tokio::test]
+async fn session_configuration_apply_adds_additional_working_directories_to_legacy_sandbox() {
+    let mut session_configuration = make_session_configuration_for_tests().await;
+    let workspace = tempfile::tempdir().expect("create temp dir");
+    let project_root = workspace.path().join("project");
+    let shared_root = workspace.path().join("shared");
+    std::fs::create_dir_all(&project_root).expect("create project dir");
+    std::fs::create_dir_all(&shared_root).expect("create shared dir");
+
+    session_configuration.cwd = project_root.abs();
+    session_configuration.sandbox_policy =
+        codex_config::Constrained::allow_any(SandboxPolicy::new_workspace_write_policy());
+    session_configuration.file_system_sandbox_policy =
+        FileSystemSandboxPolicy::from_legacy_sandbox_policy(
+            session_configuration.sandbox_policy.get(),
+            &session_configuration.cwd,
+        );
+
+    let additional_directory = shared_root.abs();
+    let updated = session_configuration
+        .apply(&SessionSettingsUpdate {
+            additional_working_directories: Some(vec![additional_directory.clone()]),
+            ..Default::default()
+        })
+        .expect("additional directory update should succeed");
+
+    assert_eq!(
+        updated.additional_working_directories,
+        vec![additional_directory.clone()]
+    );
+    assert!(
+        updated
+            .file_system_sandbox_policy
+            .can_write_path_with_cwd(additional_directory.as_path(), updated.cwd.as_path())
+    );
+    match updated.sandbox_policy.get() {
+        SandboxPolicy::WorkspaceWrite { writable_roots, .. } => {
+            assert!(
+                writable_roots
+                    .iter()
+                    .any(|path| path == &additional_directory)
+            );
+        }
+        other => panic!("expected workspace-write sandbox, got {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn session_new_fails_when_zsh_fork_enabled_without_zsh_path() {
     let codex_home = tempfile::tempdir().expect("create temp dir");
     let mut config = build_test_config(codex_home.path()).await;
@@ -2518,6 +2569,7 @@ async fn session_new_fails_when_zsh_fork_enabled_without_zsh_path() {
         file_system_sandbox_policy: config.permissions.file_system_sandbox_policy.clone(),
         network_sandbox_policy: config.permissions.network_sandbox_policy,
         windows_sandbox_level: WindowsSandboxLevel::from_config(&config),
+        additional_working_directories: config.additional_working_directories.clone(),
         cwd: config.cwd.clone(),
         codex_home: config.codex_home.clone(),
         thread_name: None,
@@ -2615,6 +2667,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         file_system_sandbox_policy: config.permissions.file_system_sandbox_policy.clone(),
         network_sandbox_policy: config.permissions.network_sandbox_policy,
         windows_sandbox_level: WindowsSandboxLevel::from_config(&config),
+        additional_working_directories: config.additional_working_directories.clone(),
         cwd: config.cwd.clone(),
         codex_home: config.codex_home.clone(),
         thread_name: None,
@@ -3056,6 +3109,7 @@ fn op_kind_distinguishes_turn_ops() {
             approvals_reviewer: None,
             sandbox_policy: None,
             windows_sandbox_level: None,
+            additional_working_directories: None,
             model: None,
             effort: None,
             summary: None,
@@ -3452,6 +3506,7 @@ pub(crate) async fn make_session_and_context_with_dynamic_tools_and_rx(
         file_system_sandbox_policy: config.permissions.file_system_sandbox_policy.clone(),
         network_sandbox_policy: config.permissions.network_sandbox_policy,
         windows_sandbox_level: WindowsSandboxLevel::from_config(&config),
+        additional_working_directories: config.additional_working_directories.clone(),
         cwd: config.cwd.clone(),
         codex_home: config.codex_home.clone(),
         thread_name: None,

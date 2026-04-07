@@ -80,24 +80,46 @@ async fn slash_init_skips_when_project_doc_exists() {
 }
 
 #[tokio::test]
-async fn slash_add_dir_without_args_reports_current_limit() {
+async fn slash_add_dir_without_args_opens_prompt() {
     let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
 
     chat.dispatch_command(SlashCommand::AddDir);
 
     assert_matches!(op_rx.try_recv(), Err(TryRecvError::Empty));
+    assert_matches!(rx.try_recv(), Err(TryRecvError::Empty));
 
-    let cells = drain_insert_history(&mut rx);
-    assert_eq!(cells.len(), 1, "expected one info message");
-    let rendered = lines_to_single_string(&cells[0]);
-    assert_snapshot!(
-        rendered,
-        @"• Interactive directory entry is not available yet. Run `/add-dir <path>` for now. Use /permissions to manage workspace access."
+    let popup = normalize_snapshot_paths(render_bottom_popup(&chat, /*width*/ 90));
+    assert!(
+        popup.contains("Add working directory"),
+        "expected add-dir prompt, got {popup:?}"
+    );
+    assert!(
+        popup.contains("Type a directory path and press Enter"),
+        "expected add-dir prompt placeholder, got {popup:?}"
     );
 }
 
 #[tokio::test]
-async fn slash_add_dir_with_args_updates_session_working_directories() {
+async fn slash_add_dir_prompt_submit_emits_validation_event() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+
+    chat.dispatch_command(SlashCommand::AddDir);
+    for ch in "../shared".chars() {
+        chat.handle_key_event(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_matches!(op_rx.try_recv(), Err(TryRecvError::Empty));
+    match rx.try_recv() {
+        Ok(AppEvent::AddWorkingDirectoryInputSubmitted { input }) => {
+            assert_eq!(input, "../shared");
+        }
+        other => panic!("expected add-dir prompt submission event, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn slash_add_dir_with_args_opens_confirmation_popup() {
     let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     let tempdir = tempdir().unwrap();
     let repo_dir = tempdir.path().join("repo");
@@ -108,33 +130,65 @@ async fn slash_add_dir_with_args_updates_session_working_directories() {
 
     chat.dispatch_command_with_args(SlashCommand::AddDir, "../shared".to_string(), Vec::new());
 
-    let expected_dir = AbsolutePathBuf::try_from(shared_dir.clone()).unwrap();
-    match op_rx.try_recv() {
-        Ok(Op::OverrideTurnContext {
-            additional_working_directories: Some(directories),
-            ..
-        }) => {
-            assert_eq!(directories, vec![expected_dir.clone()]);
+    assert_matches!(op_rx.try_recv(), Err(TryRecvError::Empty));
+    assert_matches!(rx.try_recv(), Err(TryRecvError::Empty));
+
+    let popup = normalize_snapshot_paths(render_bottom_popup(&chat, /*width*/ 100));
+    assert!(
+        popup.contains("Add working directory?"),
+        "expected add-dir confirmation popup, got {popup:?}"
+    );
+    assert!(
+        popup.contains(&normalize_snapshot_paths(shared_dir.display().to_string())),
+        "expected popup to mention validated path, got {popup:?}"
+    );
+}
+
+#[tokio::test]
+async fn slash_add_dir_confirmation_session_only_emits_confirm_event() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    let tempdir = tempdir().unwrap();
+    let repo_dir = tempdir.path().join("repo");
+    let shared_dir = tempdir.path().join("shared");
+    std::fs::create_dir(&repo_dir).unwrap();
+    std::fs::create_dir(&shared_dir).unwrap();
+    chat.config.cwd = repo_dir.clone().abs();
+
+    chat.dispatch_command_with_args(SlashCommand::AddDir, "../shared".to_string(), Vec::new());
+    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
+
+    assert_matches!(op_rx.try_recv(), Err(TryRecvError::Empty));
+    match rx.try_recv() {
+        Ok(AppEvent::ConfirmAddWorkingDirectory { path, persist }) => {
+            assert_eq!(path, AbsolutePathBuf::try_from(shared_dir).unwrap());
+            assert!(!persist);
         }
-        other => panic!("expected add-dir override op, got {other:?}"),
+        other => panic!("expected session-only add-dir confirmation event, got {other:?}"),
     }
+}
 
-    assert_eq!(
-        chat.config.additional_working_directories,
-        vec![expected_dir]
-    );
+#[tokio::test]
+async fn slash_add_dir_confirmation_remember_emits_confirm_event() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    let tempdir = tempdir().unwrap();
+    let repo_dir = tempdir.path().join("repo");
+    let shared_dir = tempdir.path().join("shared");
+    std::fs::create_dir(&repo_dir).unwrap();
+    std::fs::create_dir(&shared_dir).unwrap();
+    chat.config.cwd = repo_dir.clone().abs();
 
-    let cells = drain_insert_history(&mut rx);
-    assert_eq!(cells.len(), 1, "expected one info message");
-    let rendered = lines_to_single_string(&cells[0]);
-    assert!(
-        rendered.contains("Added"),
-        "expected success message, got {rendered:?}"
-    );
-    assert!(
-        rendered.contains(&shared_dir.display().to_string()),
-        "expected success message to mention added path: {rendered:?}"
-    );
+    chat.dispatch_command_with_args(SlashCommand::AddDir, "../shared".to_string(), Vec::new());
+    chat.handle_key_event(KeyEvent::from(KeyCode::Down));
+    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
+
+    assert_matches!(op_rx.try_recv(), Err(TryRecvError::Empty));
+    match rx.try_recv() {
+        Ok(AppEvent::ConfirmAddWorkingDirectory { path, persist }) => {
+            assert_eq!(path, AbsolutePathBuf::try_from(shared_dir).unwrap());
+            assert!(persist);
+        }
+        other => panic!("expected remembered add-dir confirmation event, got {other:?}"),
+    }
 }
 
 #[tokio::test]
