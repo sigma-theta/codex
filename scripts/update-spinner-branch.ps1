@@ -150,7 +150,7 @@ try {
                 }
             }
 
-            Invoke-Step "cargo build --release -p codex-tui" -AllowDryRun
+            Invoke-Step "cargo build --release -p codex-tui --bins" -AllowDryRun
         } finally {
             if ($null -ne $originalManifestContent) {
                 Set-Content -Path $cargoManifestPath -Value $originalManifestContent -NoNewline
