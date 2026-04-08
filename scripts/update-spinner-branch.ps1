@@ -42,6 +42,15 @@ function Get-GitOutput {
     $output
 }
 
+function Test-RebaseInProgress {
+    $rebaseApplyPath = Get-GitOutput "git rev-parse --git-path rebase-apply"
+    $rebaseApplyPath = $rebaseApplyPath | Select-Object -First 1
+    $rebaseMergePath = Get-GitOutput "git rev-parse --git-path rebase-merge"
+    $rebaseMergePath = $rebaseMergePath | Select-Object -First 1
+
+    (Test-Path $rebaseApplyPath) -or (Test-Path $rebaseMergePath)
+}
+
 function Get-WorkspaceVersion {
     param(
         [Parameter(Mandatory = $true)]
@@ -122,14 +131,28 @@ if (-not $originalBranch) {
     throw "Failed to determine current branch."
 }
 
+$backupBranch = $null
+
 try {
     Invoke-Step "git fetch $UpstreamRemote $BaseBranch" -AllowDryRun
     Invoke-Step "git fetch $PushRemote" -AllowDryRun
     Invoke-Step "git switch $BaseBranch" -AllowDryRun
-    Invoke-Step "git rebase $UpstreamRemote/$BaseBranch" -AllowDryRun
+
+    if (-not $DryRun) {
+        $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+        $backupBranch = "backup/$BaseBranch-before-upstream-sync-$timestamp"
+        Invoke-Step "git branch $backupBranch"
+
+        $customCommitCount = Get-GitOutput "git rev-list --count $UpstreamRemote/$BaseBranch..$BaseBranch"
+        $customCommitCount = $customCommitCount | Select-Object -First 1
+        Write-Host "==> Replaying $customCommitCount customization commit(s) onto $UpstreamRemote/$BaseBranch"
+        Write-Host "==> If anything goes wrong, your pre-update branch tip is saved at $backupBranch"
+    }
+
+    Invoke-Step "git rebase --rebase-merges -X theirs $UpstreamRemote/$BaseBranch" -AllowDryRun
 
     if (-not $SkipPush) {
-        Invoke-Step "git push $PushRemote $BaseBranch" -AllowDryRun
+        Invoke-Step "git push --force-with-lease $PushRemote $BaseBranch" -AllowDryRun
     }
 
     if (-not $SkipBuild) {
@@ -157,6 +180,16 @@ try {
             }
         }
     }
+} catch {
+    if (-not $DryRun -and (Test-RebaseInProgress)) {
+        Invoke-Step "git rebase --abort"
+    }
+
+    if ($backupBranch) {
+        Write-Host "==> Update failed. Original branch tip preserved at $backupBranch"
+    }
+
+    throw
 } finally {
     Set-Location $repoRoot
     if (-not $DryRun -and $originalBranch -and $originalBranch -ne (Get-GitOutput "git branch --show-current" | Select-Object -First 1)) {
