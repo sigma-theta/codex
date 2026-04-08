@@ -66,6 +66,114 @@ function Get-WorkspaceVersion {
     $match.Groups['version'].Value
 }
 
+function Normalize-ReleaseVersion {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$TagName
+    )
+
+    $normalizedVersion = $TagName.Trim()
+    while ($normalizedVersion.StartsWith("rust-v")) {
+        $normalizedVersion = $normalizedVersion.Substring(6)
+    }
+    while ($normalizedVersion.StartsWith("v")) {
+        $normalizedVersion = $normalizedVersion.Substring(1)
+    }
+
+    if ($normalizedVersion -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$') {
+        throw "Unexpected rust release tag format: $TagName"
+    }
+
+    $normalizedVersion
+}
+
+function Compare-PreReleaseIdentifiers {
+    param(
+        [string[]]$LeftIdentifiers,
+        [string[]]$RightIdentifiers
+    )
+
+    $sharedLength = [Math]::Min($LeftIdentifiers.Length, $RightIdentifiers.Length)
+    for ($index = 0; $index -lt $sharedLength; $index++) {
+        $leftIdentifier = $LeftIdentifiers[$index]
+        $rightIdentifier = $RightIdentifiers[$index]
+        $leftIsNumeric = $leftIdentifier -match '^\d+$'
+        $rightIsNumeric = $rightIdentifier -match '^\d+$'
+
+        if ($leftIsNumeric -and $rightIsNumeric) {
+            $leftNumber = [int64]$leftIdentifier
+            $rightNumber = [int64]$rightIdentifier
+            if ($leftNumber -ne $rightNumber) {
+                return [Math]::Sign($leftNumber - $rightNumber)
+            }
+            continue
+        }
+
+        if ($leftIsNumeric -ne $rightIsNumeric) {
+            if ($leftIsNumeric) {
+                return -1
+            }
+            return 1
+        }
+
+        $identifierComparison = [string]::CompareOrdinal($leftIdentifier, $rightIdentifier)
+        if ($identifierComparison -ne 0) {
+            return [Math]::Sign($identifierComparison)
+        }
+    }
+
+    if ($LeftIdentifiers.Length -eq $RightIdentifiers.Length) {
+        return 0
+    }
+
+    if ($LeftIdentifiers.Length -lt $RightIdentifiers.Length) {
+        return -1
+    }
+
+    1
+}
+
+function Compare-SemVer {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$LeftVersion,
+        [Parameter(Mandatory = $true)]
+        [string]$RightVersion
+    )
+
+    $versionPattern = '^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)(?:-(?<prerelease>[0-9A-Za-z.-]+))?(?:\+(?<build>[0-9A-Za-z.-]+))?$'
+    $leftMatch = [regex]::Match($LeftVersion, $versionPattern)
+    $rightMatch = [regex]::Match($RightVersion, $versionPattern)
+    if (-not $leftMatch.Success -or -not $rightMatch.Success) {
+        throw "Failed to parse semantic version(s): $LeftVersion / $RightVersion"
+    }
+
+    foreach ($component in @('major', 'minor', 'patch')) {
+        $leftValue = [int64]$leftMatch.Groups[$component].Value
+        $rightValue = [int64]$rightMatch.Groups[$component].Value
+        if ($leftValue -ne $rightValue) {
+            return [Math]::Sign($leftValue - $rightValue)
+        }
+    }
+
+    $leftPreRelease = $leftMatch.Groups['prerelease'].Value
+    $rightPreRelease = $rightMatch.Groups['prerelease'].Value
+    $leftHasPreRelease = -not [string]::IsNullOrEmpty($leftPreRelease)
+    $rightHasPreRelease = -not [string]::IsNullOrEmpty($rightPreRelease)
+
+    if ($leftHasPreRelease -and -not $rightHasPreRelease) {
+        return -1
+    }
+    if (-not $leftHasPreRelease -and $rightHasPreRelease) {
+        return 1
+    }
+    if (-not $leftHasPreRelease -and -not $rightHasPreRelease) {
+        return 0
+    }
+
+    Compare-PreReleaseIdentifiers -LeftIdentifiers ($leftPreRelease -split '\.') -RightIdentifiers ($rightPreRelease -split '\.')
+}
+
 function Get-LatestReleaseVersion {
     param(
         [Parameter(Mandatory = $true)]
@@ -74,17 +182,38 @@ function Get-LatestReleaseVersion {
 
     Invoke-Step "git fetch $UpstreamRemoteName --tags" -AllowDryRun
 
-    $tags = Get-GitOutput "git tag --list 'rust-v*' --sort=-version:refname"
-    $latestTag = $tags | Select-Object -First 1
-    if (-not $latestTag) {
+    $tags = @(Get-GitOutput "git tag --list 'rust-v*'")
+    if ($tags.Count -eq 0) {
         throw "Failed to determine the latest upstream rust release tag."
     }
 
-    if ($latestTag -notmatch '^rust-v(?<version>.+)$') {
-        throw "Unexpected rust release tag format: $latestTag"
+    $latestVersion = $null
+    $skippedTagCount = 0
+    foreach ($tag in $tags) {
+        try {
+            $normalizedVersion = Normalize-ReleaseVersion -TagName $tag
+        } catch {
+            $skippedTagCount += 1
+            continue
+        }
+        if ($normalizedVersion -match '^0\.0\.') {
+            $skippedTagCount += 1
+            continue
+        }
+
+        if ($null -eq $latestVersion -or (Compare-SemVer -LeftVersion $normalizedVersion -RightVersion $latestVersion) -gt 0) {
+            $latestVersion = $normalizedVersion
+        }
     }
 
-    $Matches.version
+    if ($null -eq $latestVersion) {
+        throw "Failed to determine a valid upstream rust release tag."
+    }
+    if ($skippedTagCount -gt 0) {
+        Write-Host "==> Ignored $skippedTagCount invalid rust release tag(s) while determining the latest upstream version"
+    }
+
+    $latestVersion
 }
 
 function Set-WorkspaceVersionForBuild {
