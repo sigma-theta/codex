@@ -59,13 +59,15 @@ You can also use Codex with an API key, but this requires [additional setup](htt
 
 ## Local customization workflow
 
-If you keep your Codex customization directly on your fork's `main`, you can rebase that local `main` onto the latest upstream `main`, push it back to your fork, and rebuild with:
+If you keep your Codex customization directly on your fork's `main`, you can replay those fork-only commits onto the latest upstream `main`, prefer your customization side for overlapping hunks, force-push the rewritten branch back to your fork with `--force-with-lease`, and rebuild with:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-spinner-branch.ps1
 ```
 
-When the workspace version is still `0.0.0`, the script now stamps the build with a temporary local version derived from the latest upstream `rust-v*` release tag, so the compiled binary does not stay at `v0.0.0`.
+The script also creates a local backup branch before rebasing, so you can recover the pre-update `main` tip if anything goes wrong.
+
+When the workspace version is still `0.0.0`, the script stamps the build with a temporary local version derived from the latest upstream `rust-v*` release tag, so the compiled binary does not stay at `v0.0.0`.
 
 Useful options:
 
