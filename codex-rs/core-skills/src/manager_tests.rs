@@ -126,6 +126,7 @@ fn skills_for_config_with_stack(
 ) -> SkillLoadOutcome {
     let skills_input = SkillsLoadInput::new(
         cwd.path().to_path_buf(),
+        Vec::new(),
         effective_skill_roots.to_vec(),
         config_layer_stack.clone(),
         bundled_skills_enabled_from_stack(config_layer_stack),
@@ -243,6 +244,7 @@ async fn skills_for_cwd_reuses_cached_entry_even_when_entry_has_extra_roots() {
     let base_input = SkillsLoadInput::new(
         cwd.path().to_path_buf(),
         Vec::new(),
+        Vec::new(),
         config_layer_stack.clone(),
         bundled_skills_enabled_from_stack(&config_layer_stack),
     );
@@ -270,6 +272,7 @@ async fn skills_for_cwd_reuses_cached_entry_even_when_entry_has_extra_roots() {
     // was produced with extra roots.
     let base_input = SkillsLoadInput::new(
         cwd.path().to_path_buf(),
+        Vec::new(),
         Vec::new(),
         config_layer_stack.clone(),
         bundled_skills_enabled_from_stack(&config_layer_stack),
@@ -341,6 +344,7 @@ async fn skills_for_cwd_with_extra_roots_only_refreshes_on_force_reload() {
     let extra_root_a_path = extra_root_a.path().to_path_buf();
     let base_input = SkillsLoadInput::new(
         cwd.path().to_path_buf(),
+        Vec::new(),
         Vec::new(),
         config_layer_stack.clone(),
         bundled_skills_enabled_from_stack(&config_layer_stack),
@@ -565,6 +569,7 @@ async fn skills_for_config_ignores_cwd_cache_when_session_flags_reenable_skill()
     );
     let parent_input = SkillsLoadInput::new(
         cwd.path().to_path_buf(),
+        Vec::new(),
         Vec::new(),
         parent_stack.clone(),
         bundled_skills_enabled_from_stack(&parent_stack),

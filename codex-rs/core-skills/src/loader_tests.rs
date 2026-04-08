@@ -115,6 +115,7 @@ fn load_skills_for_test(config: &TestConfig) -> SkillLoadOutcome {
     super::load_skills_from_roots(super::skill_roots_with_home_dir(
         &config.config_layer_stack,
         &config.cwd,
+        Vec::new(),
         /*home_dir*/ None,
         Vec::new(),
     ))
@@ -1702,10 +1703,11 @@ async fn skill_roots_include_admin_with_lowest_priority() {
     let codex_home = tempfile::tempdir().expect("tempdir");
     let cfg = make_config(&codex_home).await;
 
-    let scopes: Vec<SkillScope> = super::skill_roots(&cfg.config_layer_stack, &cfg.cwd, Vec::new())
-        .into_iter()
-        .map(|root| root.scope)
-        .collect();
+    let scopes: Vec<SkillScope> =
+        super::skill_roots(&cfg.config_layer_stack, &cfg.cwd, Vec::new(), Vec::new())
+            .into_iter()
+            .map(|root| root.scope)
+            .collect();
     let mut expected = vec![SkillScope::User, SkillScope::System];
     if home_dir().is_some() {
         expected.insert(1, SkillScope::User);

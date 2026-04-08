@@ -851,7 +851,13 @@ pub(crate) fn skill_roots_from_layer_stack(
     config_layer_stack: &ConfigLayerStack,
     home_dir: Option<&Path>,
 ) -> Vec<SkillRoot> {
-    skill_roots_with_home_dir(config_layer_stack, Path::new("."), home_dir, Vec::new())
+    skill_roots_with_home_dir(
+        config_layer_stack,
+        Path::new("."),
+        Vec::new(),
+        home_dir,
+        Vec::new(),
+    )
 }
 
 #[cfg(test)]
