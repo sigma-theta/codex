@@ -1,44 +1,49 @@
 # PRD: `/add-dir` Slash Command
 
-## Status Update (2026-04-03)
+## Status Update (2026-04-08)
 
-### Implemented in code so far
+### Implemented in code
 
-- Added a persisted config field under `permissions.additionalDirectories` in the Rust config model.
-- Added runtime `Config.additional_working_directories` state so explicit extra directories are no longer only a CLI/bootstrap concern.
-- Threaded additional working directories into `SessionConfiguration`, `SessionSettingsUpdate`, and per-turn config rebuilding.
-- Threaded `additional_working_directories` through `Op::OverrideTurnContext`, the TUI `AppCommand` wrapper, and the core override handler so live session updates can carry extra directories.
-- Updated project-doc discovery so `AGENTS.md` lookup now also walks explicit additional working directories.
+- Added persisted config support under `permissions.additionalDirectories`.
+- Added runtime `Config.additional_working_directories` state so explicit extra directories are part of the live session configuration, not just CLI/bootstrap setup.
+- Threaded `additional_working_directories` through session configuration, per-turn config rebuilding, and the TUI/core override pipeline.
+- Fixed live-session sandbox refresh so changing `additional_working_directories` recomputes the effective filesystem allowlists immediately.
+- Preserved existing `--add-dir` behavior by merging CLI-provided directories with persisted config directories.
+- Updated project-doc discovery so `AGENTS.md` lookup walks explicit additional working directories.
 - Updated skill loading so repo skill roots from explicit additional working directories are included.
-- Preserved existing `--add-dir` / additional writable roots behavior by merging CLI-provided directories with persisted config directories.
-- Registered `/add-dir` in the TUI slash-command surface, including popup visibility and inline-argument support.
-- Added `/add-dir` dispatch in `chatwidget.rs`.
-  - Bare `/add-dir` currently reports that interactive directory entry is not wired yet.
-  - `/add-dir <path>` currently performs session-only path validation and applies an immediate `OverrideTurnContext` update for `additional_working_directories`.
-- Added TUI coverage for the new command and fixed the dependent compile fallout in `codex-app-server` / TUI test fixtures exposed by the new override field.
-- Ran `just fmt` and `cargo test -p codex-tui` successfully after this slice.
+- Registered `/add-dir` in the TUI slash-command surface with optional inline path arguments.
+- Implemented `/add-dir <path>`:
+  - trims and resolves the path, including `~`
+  - validates existence with a single metadata/stat lookup
+  - rejects empty input, non-directories, and paths already covered by an existing working directory
+  - opens a confirmation popup with `Yes, for this session`, `Yes, and remember this directory`, and `No`
+- Implemented `/add-dir` with no argument:
+  - opens a dedicated directory-entry prompt
+  - shows debounced filesystem directory suggestions
+  - supports `Tab` completion and `Up`/`Down` suggestion navigation
+  - emits the cancellation message `Did not add a working directory.` when dismissed
+- Implemented session-only success, remembered success, and partial-success messaging, including the `/permissions` follow-up hint.
+- Implemented persistence for remembered directories under `permissions.additionalDirectories` without duplicate writes.
+- On Windows, remembered/session additions also reuse the existing non-elevated read-root grant flow.
+- Added TUI and core test coverage for:
+  - slash-command prompt/confirmation behavior
+  - remembered vs session-only flows
+  - config editing for `permissions.additionalDirectories`
+  - sandbox recomputation when additional working directories change
 
-### Not implemented yet
+### Verification completed
 
-- Interactive no-arg directory entry UI with directory autocomplete.
-- Confirmation popup with `session`, `remember`, and `cancel` actions.
-- Persistence write path for appending to `permissions.additionalDirectories` without duplicates.
-- Persisted-scope success / partial-success messaging.
-- Sandbox refresh plumbing for the current session after adding a directory.
-- Docs updates for the final remembered-directory UX, if needed.
+- `cargo fmt`
+- `cargo test -p codex-tui slash_add_dir`
+- targeted `codex-core` tests for the config schema and legacy sandbox recomputation
 
-### Important follow-up / cleanup items
+### Remaining notes
 
-- The current `/add-dir <path>` flow is intentionally session-only and skips the PRD's confirmation step until the picker / remember UI exists.
-- Full workspace verification has not been rerun; this slice is verified with `cargo test -p codex-tui`.
-- The PRD originally called the command `/add-dir`, while the filename says `dir-slash-command`; the code work so far has followed `/add-dir`.
-
-### Suggested next-session order
-
-1. Implement the confirmation popup and remember/persist flow for `/add-dir <path>`.
-2. Implement the interactive no-arg directory prompt with autocomplete and keyboard navigation.
-3. Add sandbox refresh plumbing so newly added directories are immediately usable by sandboxed shell commands.
-4. Update docs/schema if the persistence flow changes config output, then rerun the appropriate verification sweep.
+- The user-facing PRD flow is implemented.
+- The main remaining work is standard integration follow-through, not missing feature behavior:
+  - run a broader non-filtered verification sweep when desired
+  - stage/commit/push the latest no-arg prompt changes
+- Internally, the implementation uses the existing `OverrideTurnContext` / session-update pipeline rather than introducing a literal `addDirectories` permission-update type. Functionally this satisfies the PRD goals, but the internal shape differs from the original technical note.
 ## Summary
 
 Implement a slash command, `/add-dir`, that allows the user to add an additional working directory to the current Claude Code session. The command must grant tool access to the selected directory, optionally persist that access in local settings, and update runtime sandbox configuration immediately so the new directory is usable without restarting the session.

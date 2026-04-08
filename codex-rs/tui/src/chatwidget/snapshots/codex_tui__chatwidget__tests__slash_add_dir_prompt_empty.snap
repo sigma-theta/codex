@@ -1,0 +1,11 @@
+---
+source: tui/src/chatwidget/tests/slash_commands.rs
+assertion_line: 92
+expression: popup.clone()
+---
+▌ Add working directory
+▌ Current directory: /tmp/project
+▌
+▌ Type a directory path and press Enter
+Use tab to complete and ↑/↓ to choose a directory
+Press enter to confirm or esc to go back

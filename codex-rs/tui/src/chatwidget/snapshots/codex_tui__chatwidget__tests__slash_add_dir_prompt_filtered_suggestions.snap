@@ -1,0 +1,12 @@
+---
+source: tui/src/chatwidget/tests/slash_commands.rs
+assertion_line: 139
+expression: popup
+---
+▌ Add working directory
+▌ Current directory: <tempdir>
+▌
+▌ b
+▌ › <tempdir>\beta-lib
+Use tab to complete and ↑/↓ to choose a directory
+Press enter to confirm or esc to go back

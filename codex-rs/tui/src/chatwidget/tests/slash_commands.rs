@@ -215,6 +215,7 @@ async fn slash_add_dir_without_args_opens_prompt() {
     assert_matches!(rx.try_recv(), Err(TryRecvError::Empty));
 
     let popup = normalize_snapshot_paths(render_bottom_popup(&chat, /*width*/ 90));
+    assert_chatwidget_snapshot!("slash_add_dir_prompt_empty", popup.clone());
     assert!(
         popup.contains("Add working directory"),
         "expected add-dir prompt, got {popup:?}"
@@ -223,6 +224,45 @@ async fn slash_add_dir_without_args_opens_prompt() {
         popup.contains("Type a directory path and press Enter"),
         "expected add-dir prompt placeholder, got {popup:?}"
     );
+}
+
+#[tokio::test]
+async fn slash_add_dir_prompt_escape_reports_cancellation() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+
+    chat.dispatch_command(SlashCommand::AddDir);
+    chat.handle_key_event(KeyEvent::from(KeyCode::Esc));
+
+    assert_matches!(op_rx.try_recv(), Err(TryRecvError::Empty));
+    let cells = drain_insert_history(&mut rx);
+    assert_eq!(cells.len(), 1, "expected one info message");
+    let rendered = lines_to_single_string(&cells[0]);
+    assert!(
+        rendered.contains("Did not add a working directory."),
+        "expected cancellation message, got {rendered:?}"
+    );
+}
+
+#[tokio::test]
+async fn slash_add_dir_prompt_filtered_suggestions_have_snapshot_coverage() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    let tempdir = tempdir().unwrap();
+    std::fs::create_dir(tempdir.path().join("alpha-lib")).unwrap();
+    std::fs::create_dir(tempdir.path().join("beta-lib")).unwrap();
+    chat.config.cwd = tempdir.path().to_path_buf().abs();
+
+    chat.dispatch_command(SlashCommand::AddDir);
+    chat.handle_key_event(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE));
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+
+    assert_matches!(op_rx.try_recv(), Err(TryRecvError::Empty));
+    assert_matches!(rx.try_recv(), Err(TryRecvError::Empty));
+
+    let popup = normalize_snapshot_paths(render_bottom_popup(&chat, /*width*/ 100)).replace(
+        &normalize_snapshot_paths(tempdir.path().display().to_string()),
+        "<tempdir>",
+    );
+    assert_chatwidget_snapshot!("slash_add_dir_prompt_filtered_suggestions", popup);
 }
 
 #[tokio::test]
@@ -239,6 +279,30 @@ async fn slash_add_dir_prompt_submit_emits_validation_event() {
     match rx.try_recv() {
         Ok(AppEvent::AddWorkingDirectoryInputSubmitted { input }) => {
             assert_eq!(input, "../shared");
+        }
+        other => panic!("expected add-dir prompt submission event, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn slash_add_dir_prompt_tab_completes_selected_directory() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    let tempdir = tempdir().unwrap();
+    let alpha_dir = tempdir.path().join("alpha");
+    let beta_dir = tempdir.path().join("beta");
+    std::fs::create_dir(&alpha_dir).unwrap();
+    std::fs::create_dir(&beta_dir).unwrap();
+    chat.config.cwd = tempdir.path().to_path_buf().abs();
+
+    chat.dispatch_command(SlashCommand::AddDir);
+    chat.handle_key_event(KeyEvent::from(KeyCode::Down));
+    chat.handle_key_event(KeyEvent::from(KeyCode::Tab));
+    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
+
+    assert_matches!(op_rx.try_recv(), Err(TryRecvError::Empty));
+    match rx.try_recv() {
+        Ok(AppEvent::AddWorkingDirectoryInputSubmitted { input }) => {
+            assert_eq!(input, beta_dir.display().to_string());
         }
         other => panic!("expected add-dir prompt submission event, got {other:?}"),
     }

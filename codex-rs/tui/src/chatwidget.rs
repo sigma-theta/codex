@@ -323,6 +323,7 @@ use crate::bottom_pane::SelectionAction;
 use crate::bottom_pane::SelectionItem;
 use crate::bottom_pane::SelectionViewParams;
 use crate::bottom_pane::custom_prompt_view::CustomPromptView;
+use crate::bottom_pane::directory_prompt_view::DirectoryPromptView;
 use crate::bottom_pane::popup_consts::standard_popup_hint_line;
 use crate::clipboard_paste::paste_image_to_temp_png;
 use crate::collaboration_modes;
@@ -5768,12 +5769,23 @@ impl ChatWidget {
 
     fn open_add_working_directory_prompt(&mut self) {
         let tx = self.app_event_tx.clone();
-        let view = CustomPromptView::new(
+        let cancel_tx = self.app_event_tx.clone();
+        let view = DirectoryPromptView::new(
             ADD_DIR_PROMPT_TITLE.to_string(),
             ADD_DIR_PROMPT_PLACEHOLDER.to_string(),
             Some(format!("Current directory: {}", self.config.cwd.display())),
+            self.config.cwd.to_path_buf(),
+            self.frame_requester.clone(),
             Box::new(move |input: String| {
                 tx.send(AppEvent::AddWorkingDirectoryInputSubmitted { input });
+            }),
+            Box::new(move || {
+                cancel_tx.send(AppEvent::InsertHistoryCell(Box::new(
+                    history_cell::new_info_event(
+                        "Did not add a working directory.".to_string(),
+                        /*hint*/ None,
+                    ),
+                )));
             }),
         );
 
