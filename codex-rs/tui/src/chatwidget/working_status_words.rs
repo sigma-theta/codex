@@ -210,17 +210,11 @@ pub(super) fn choose_working_status_word_index(words: &[String]) -> usize {
     }
 }
 
-pub(super) fn working_status_word_at(
-    words: &[String],
-    starting_index: usize,
-    elapsed: Duration,
-) -> String {
+pub(super) fn working_status_word_for_index(words: &[String], index: usize) -> String {
     if words.is_empty() {
         return DEFAULT_WORKING_STATUS.to_string();
     }
 
-    let steps = (elapsed.as_secs() / WORKING_STATUS_ROTATION_INTERVAL.as_secs()) as usize;
-    let index = (starting_index + steps) % words.len();
     words[index].clone()
 }
 
@@ -243,34 +237,21 @@ mod tests {
     #[test]
     fn falls_back_to_default_when_list_is_empty() {
         assert_eq!(
-            working_status_word_at(&[], 0, Duration::from_secs(30)),
+            working_status_word_for_index(&[], 0),
             DEFAULT_WORKING_STATUS
         );
     }
 
     #[test]
-    fn rotates_every_ten_seconds() {
+    fn returns_word_for_requested_index() {
         let words = vec![
             "Working".to_string(),
             "Thinking".to_string(),
             "Computing".to_string(),
         ];
 
-        assert_eq!(
-            working_status_word_at(&words, 1, Duration::from_secs(0)),
-            "Thinking"
-        );
-        assert_eq!(
-            working_status_word_at(&words, 1, Duration::from_secs(9)),
-            "Thinking"
-        );
-        assert_eq!(
-            working_status_word_at(&words, 1, Duration::from_secs(10)),
-            "Computing"
-        );
-        assert_eq!(
-            working_status_word_at(&words, 1, Duration::from_secs(20)),
-            "Working"
-        );
+        assert_eq!(working_status_word_for_index(&words, 1), "Thinking");
+        assert_eq!(working_status_word_for_index(&words, 2), "Computing");
+        assert_eq!(working_status_word_for_index(&words, 0), "Working");
     }
 }
