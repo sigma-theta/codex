@@ -229,7 +229,7 @@ function Set-WorkspaceVersionForBuild {
     $updatedContent = [regex]::Replace(
         $manifestContent,
         $versionPattern,
-        ('$1{0}$3' -f $BuildVersion),
+        ('${{1}}{0}${{3}}' -f $BuildVersion),
         1
     )
 
