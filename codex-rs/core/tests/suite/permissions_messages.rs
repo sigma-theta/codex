@@ -232,6 +232,7 @@ async fn permissions_message_omitted_when_disabled() -> Result<()> {
             approvals_reviewer: None,
             sandbox_policy: None,
             windows_sandbox_level: None,
+            additional_working_directories: None,
             model: None,
             effort: None,
             summary: None,

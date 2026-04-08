@@ -213,7 +213,14 @@ async fn read_project_docs_with_fs(
 /// contents. The list is ordered from project root to the current working
 /// directory (inclusive). Symlinks are allowed. When `project_doc_max_bytes`
 /// is zero, returns an empty list.
-pub fn discover_project_doc_paths(config: &Config) -> std::io::Result<Vec<PathBuf>> {
+pub async fn discover_project_doc_paths(
+    config: &Config,
+    fs: &dyn ExecutorFileSystem,
+) -> io::Result<Vec<AbsolutePathBuf>> {
+    if config.project_doc_max_bytes == 0 {
+        return Ok(Vec::new());
+    }
+
     let mut merged = TomlValue::Table(toml::map::Map::new());
     for layer in config.config_layer_stack.get_layers(
         ConfigLayerStackOrdering::LowestPrecedenceFirst,
@@ -234,17 +241,22 @@ pub fn discover_project_doc_paths(config: &Config) -> std::io::Result<Vec<PathBu
     };
     let candidate_filenames = candidate_filenames(config);
     let mut found = discover_project_doc_paths_for_directory(
-        config.cwd.to_path_buf(),
+        config.cwd.clone(),
         &project_root_markers,
         &candidate_filenames,
-    )?;
+        fs,
+    )
+    .await?;
 
     for additional_working_directory in &config.additional_working_directories {
         for path in discover_project_doc_paths_for_directory(
-            additional_working_directory.to_path_buf(),
+            additional_working_directory.clone(),
             &project_root_markers,
             &candidate_filenames,
-        )? {
+            fs,
+        )
+        .await?
+        {
             if !found.contains(&path) {
                 found.push(path);
             }
@@ -254,21 +266,22 @@ pub fn discover_project_doc_paths(config: &Config) -> std::io::Result<Vec<PathBu
     Ok(found)
 }
 
-fn discover_project_doc_paths_for_directory(
-    mut dir: PathBuf,
+async fn discover_project_doc_paths_for_directory(
+    mut dir: AbsolutePathBuf,
     project_root_markers: &[String],
     candidate_filenames: &[&str],
-) -> std::io::Result<Vec<PathBuf>> {
+    fs: &dyn ExecutorFileSystem,
+) -> io::Result<Vec<AbsolutePathBuf>> {
     if let Ok(canon) = normalize_path(&dir) {
-        dir = canon;
+        dir = AbsolutePathBuf::try_from(canon)?;
     }
 
     let mut project_root = None;
     if !project_root_markers.is_empty() {
         for ancestor in dir.ancestors() {
             for marker in project_root_markers {
-                let marker_path = ancestor.join(marker);
-                let marker_exists = match std::fs::metadata(&marker_path) {
+                let marker_path = AbsolutePathBuf::try_from(ancestor.join(marker))?;
+                let marker_exists = match fs.get_metadata(&marker_path).await {
                     Ok(_) => true,
                     Err(err) if err.kind() == io::ErrorKind::NotFound => false,
                     Err(err) => return Err(err),
@@ -303,17 +316,14 @@ fn discover_project_doc_paths_for_directory(
         vec![dir]
     };
 
-    let mut found = Vec::new();
+    let mut found: Vec<AbsolutePathBuf> = Vec::new();
     for search_dir in search_dirs {
         for name in candidate_filenames {
             let candidate = search_dir.join(name);
-            match std::fs::symlink_metadata(&candidate) {
-                Ok(md) => {
-                    let file_type = md.file_type();
-                    if file_type.is_file() || file_type.is_symlink() {
-                        found.push(candidate);
-                        break;
-                    }
+            match fs.get_metadata(&candidate).await {
+                Ok(md) if md.is_file => {
+                    found.push(candidate);
+                    break;
                 }
                 Ok(_) => {}
                 Err(err) if err.kind() == io::ErrorKind::NotFound => continue,

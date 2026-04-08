@@ -1557,7 +1557,7 @@ impl Config {
                 .map(|path| {
                     AbsolutePathBuf::resolve_path_against_base(path, resolved_cwd.as_path())
                 })
-                .collect::<Result<Vec<_>, _>>()?;
+                .collect();
         additional_working_directories.dedup();
 
         let mut additional_writable_roots: Vec<AbsolutePathBuf> =

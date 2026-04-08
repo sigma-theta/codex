@@ -5792,8 +5792,7 @@ impl ChatWidget {
             return Err("Please provide a directory path.".to_string());
         }
 
-        let normalized_path = AbsolutePathBuf::resolve_path_against_base(trimmed, &self.config.cwd)
-            .map_err(|err| format!("Failed to resolve {trimmed}: {err}"))?;
+        let normalized_path = AbsolutePathBuf::resolve_path_against_base(trimmed, &self.config.cwd);
 
         let metadata = std::fs::metadata(normalized_path.as_path())
             .map_err(|_| format!("Path {} was not found.", normalized_path.display()))?;

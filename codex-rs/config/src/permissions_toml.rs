@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 use codex_network_proxy::NetworkDomainPermission as ProxyNetworkDomainPermission;
 use codex_network_proxy::NetworkMode;
@@ -12,13 +13,19 @@ use serde::Serialize;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq, JsonSchema)]
 pub struct PermissionsToml {
+    #[serde(
+        default,
+        rename = "additionalDirectories",
+        alias = "additional_directories"
+    )]
+    pub additional_directories: Vec<PathBuf>,
     #[serde(flatten)]
     pub entries: BTreeMap<String, PermissionProfileToml>,
 }
 
 impl PermissionsToml {
     pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.additional_directories.is_empty() && self.entries.is_empty()
     }
 }
 

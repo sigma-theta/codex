@@ -451,15 +451,12 @@ fn list_directory_suggestions(input: &str, cwd: &Path) -> Vec<PathBuf> {
 fn resolve_suggestion_root(input: &str, cwd: &Path) -> (Option<AbsolutePathBuf>, String) {
     if input.is_empty() {
         return (
-            AbsolutePathBuf::resolve_path_against_base(".", cwd).ok(),
+            Some(AbsolutePathBuf::resolve_path_against_base(".", cwd)),
             String::new(),
         );
     }
 
-    let normalized = match AbsolutePathBuf::resolve_path_against_base(input, cwd) {
-        Ok(path) => path,
-        Err(_) => return (None, String::new()),
-    };
+    let normalized = AbsolutePathBuf::resolve_path_against_base(input, cwd);
 
     if input.ends_with(std::path::MAIN_SEPARATOR)
         || input.ends_with('/')
