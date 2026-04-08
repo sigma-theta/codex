@@ -380,7 +380,7 @@ use self::working_status_words::DEFAULT_WORKING_STATUS;
 use self::working_status_words::WORKING_STATUS_ROTATION_INTERVAL;
 use self::working_status_words::choose_working_status_word_index;
 use self::working_status_words::load_working_status_words;
-use self::working_status_words::working_status_word_at;
+use self::working_status_words::working_status_word_for_index;
 use crate::streaming::chunking::AdaptiveChunkingPolicy;
 use crate::streaming::commit_tick::CommitTickScope;
 use crate::streaming::commit_tick::run_commit_tick;
@@ -867,9 +867,9 @@ pub(crate) struct ChatWidget {
     working_status_words: Vec<String>,
     // Active label reused for the current task across header/title restores.
     current_working_status_word: String,
-    // Starting word index for the current task's 10s rotation.
+    // Most recently chosen word index for the current task.
     current_working_status_word_index: usize,
-    // Time origin for the current task's working-word rotation.
+    // Time origin for the current task's current working word.
     current_working_status_word_started_at: Instant,
     // True once the current turn has claimed a random working label.
     has_current_turn_working_status_word: bool,
@@ -1717,10 +1717,9 @@ impl ChatWidget {
         self.current_working_status_word_index =
             choose_working_status_word_index(&self.working_status_words);
         self.current_working_status_word_started_at = now;
-        self.current_working_status_word = working_status_word_at(
+        self.current_working_status_word = working_status_word_for_index(
             &self.working_status_words,
             self.current_working_status_word_index,
-            Duration::ZERO,
         );
         self.has_current_turn_working_status_word = true;
     }
@@ -1743,16 +1742,11 @@ impl ChatWidget {
 
         let previous_word = self.current_working_status_word.clone();
         let elapsed = now.saturating_duration_since(self.current_working_status_word_started_at);
-        let next_word = working_status_word_at(
-            &self.working_status_words,
-            self.current_working_status_word_index,
-            elapsed,
-        );
-        if next_word == previous_word {
+        if elapsed < WORKING_STATUS_ROTATION_INTERVAL {
             return;
         }
 
-        self.current_working_status_word = next_word;
+        self.choose_next_working_status_word(now);
         if self.terminal_title_status_kind == TerminalTitleStatusKind::Working
             && self.current_status.header == previous_word
         {
