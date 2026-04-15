@@ -15,7 +15,7 @@ use crate::app_event_sender::AppEventSender;
 
 pub(crate) struct FileSearchManager {
     state: Arc<Mutex<SearchState>>,
-    search_dir: PathBuf,
+    search_dirs: Vec<PathBuf>,
     app_tx: AppEventSender,
 }
 
@@ -26,23 +26,23 @@ struct SearchState {
 }
 
 impl FileSearchManager {
-    pub fn new(search_dir: PathBuf, tx: AppEventSender) -> Self {
+    pub fn new(search_dirs: Vec<PathBuf>, tx: AppEventSender) -> Self {
         Self {
             state: Arc::new(Mutex::new(SearchState {
                 latest_query: String::new(),
                 session: None,
                 session_token: 0,
             })),
-            search_dir,
+            search_dirs,
             app_tx: tx,
         }
     }
 
-    /// Updates the directory used for file searches.
-    /// This should be called when the session's CWD changes on resume.
-    /// Drops the current session so it will be recreated with the new directory on next query.
-    pub fn update_search_dir(&mut self, new_dir: PathBuf) {
-        self.search_dir = new_dir;
+    /// Updates the directories used for file searches.
+    /// This should be called when the session's CWD or additional directories change on resume.
+    /// Drops the current session so it will be recreated with the new directories on next query.
+    pub fn update_search_dirs(&mut self, new_dirs: Vec<PathBuf>) {
+        self.search_dirs = new_dirs;
         #[expect(clippy::unwrap_used)]
         let mut st = self.state.lock().unwrap();
         st.session.take();
@@ -81,7 +81,7 @@ impl FileSearchManager {
             session_token,
         });
         let session = file_search::create_session(
-            vec![self.search_dir.clone()],
+            self.search_dirs.clone(),
             file_search::FileSearchOptions {
                 compute_indices: true,
                 ..Default::default()

@@ -1244,6 +1244,12 @@ impl App {
         self.chat_widget
             .set_additional_working_directories(additional_working_directories.clone());
 
+        let mut search_dirs = vec![self.config.cwd.to_path_buf()];
+        for dir in &self.config.additional_working_directories {
+            search_dirs.push(dir.as_path().to_path_buf());
+        }
+        self.file_search.update_search_dirs(search_dirs);
+
         #[cfg(target_os = "windows")]
         self.app_event_tx
             .send(AppEvent::BeginWindowsSandboxGrantReadRoot {
@@ -1294,6 +1300,11 @@ impl App {
                 self.config.additional_working_directories = additional_working_directories.clone();
                 self.chat_widget
                     .set_additional_working_directories(additional_working_directories);
+                let mut search_dirs = vec![self.config.cwd.to_path_buf()];
+                for dir in &self.config.additional_working_directories {
+                    search_dirs.push(dir.as_path().to_path_buf());
+                }
+                self.file_search.update_search_dirs(search_dirs);
                 self.chat_widget.submit_op(AppCommand::reload_user_config());
                 self.chat_widget.add_info_message(
                     format!(
@@ -3995,7 +4006,11 @@ impl App {
         chat_widget
             .maybe_prompt_windows_sandbox_enable(should_prompt_windows_sandbox_nux_at_startup);
 
-        let file_search = FileSearchManager::new(config.cwd.to_path_buf(), app_event_tx.clone());
+        let mut search_dirs = vec![config.cwd.to_path_buf()];
+        for dir in &config.additional_working_directories {
+            search_dirs.push(dir.as_path().to_path_buf());
+        }
+        let file_search = FileSearchManager::new(search_dirs, app_event_tx.clone());
         #[cfg(not(debug_assertions))]
         let upgrade_version = crate::updates::get_upgrade_version(&config);
 
@@ -4429,9 +4444,67 @@ impl App {
                             .resume_target_session(tui, app_server, target_session)
                             .await?
                         {
-                            AppRunControl::Continue => {}
-                            AppRunControl::Exit(reason) => {
-                                return Ok(AppRunControl::Exit(reason));
+                            Ok(cfg) => cfg,
+                            Err(err) => {
+                                self.chat_widget.add_error_message(format!(
+                                    "Failed to rebuild configuration for resume: {err}"
+                                ));
+                                return Ok(AppRunControl::Continue);
+                            }
+                        };
+                        self.apply_runtime_policy_overrides(&mut resume_config);
+                        let summary = session_summary(
+                            self.chat_widget.token_usage(),
+                            self.chat_widget.thread_id(),
+                            self.chat_widget.thread_name(),
+                        );
+                        match app_server
+                            .resume_thread(resume_config.clone(), target_session.thread_id)
+                            .await
+                        {
+                            Ok(resumed) => {
+                                self.shutdown_current_thread(app_server).await;
+                                self.config = resume_config;
+                                tui.set_notification_method(self.config.tui_notification_method);
+                                let mut search_dirs = vec![self.config.cwd.to_path_buf()];
+                                for dir in &self.config.additional_working_directories {
+                                    search_dirs.push(dir.as_path().to_path_buf());
+                                }
+                                self.file_search.update_search_dirs(search_dirs);
+                                match self
+                                    .replace_chat_widget_with_app_server_thread(
+                                        tui, app_server, resumed,
+                                    )
+                                    .await
+                                {
+                                    Ok(()) => {
+                                        if let Some(summary) = summary {
+                                            let mut lines: Vec<Line<'static>> = Vec::new();
+                                            if let Some(usage_line) = summary.usage_line {
+                                                lines.push(usage_line.into());
+                                            }
+                                            if let Some(command) = summary.resume_command {
+                                                let spans = vec![
+                                                    "To continue this session, run ".into(),
+                                                    command.cyan(),
+                                                ];
+                                                lines.push(spans.into());
+                                            }
+                                            self.chat_widget.add_plain_history_lines(lines);
+                                        }
+                                    }
+                                    Err(err) => {
+                                        self.chat_widget.add_error_message(format!(
+                                            "Failed to attach to resumed app-server thread: {err}"
+                                        ));
+                                    }
+                                }
+                            }
+                            Err(err) => {
+                                let path_display = target_session.display_label();
+                                self.chat_widget.add_error_message(format!(
+                                    "Failed to resume session from {path_display}: {err}"
+                                ));
                             }
                         }
                     }
@@ -9480,8 +9553,12 @@ guardian_approval = true
     async fn make_test_app() -> App {
         let (chat_widget, app_event_tx, _rx, _op_rx) = make_chatwidget_manual_with_sender().await;
         let config = chat_widget.config_ref().clone();
-        let file_search = FileSearchManager::new(config.cwd.to_path_buf(), app_event_tx.clone());
-        let model = crate::legacy_core::test_support::get_model_offline(config.model.as_deref());
+        let mut search_dirs = vec![config.cwd.to_path_buf()];
+        for dir in &config.additional_working_directories {
+            search_dirs.push(dir.as_path().to_path_buf());
+        }
+        let file_search = FileSearchManager::new(search_dirs, app_event_tx.clone());
+        let model = codex_core::test_support::get_model_offline(config.model.as_deref());
         let session_telemetry = test_session_telemetry(&config, model.as_str());
 
         App {
@@ -9534,8 +9611,12 @@ guardian_approval = true
     ) {
         let (chat_widget, app_event_tx, rx, op_rx) = make_chatwidget_manual_with_sender().await;
         let config = chat_widget.config_ref().clone();
-        let file_search = FileSearchManager::new(config.cwd.to_path_buf(), app_event_tx.clone());
-        let model = crate::legacy_core::test_support::get_model_offline(config.model.as_deref());
+        let mut search_dirs = vec![config.cwd.to_path_buf()];
+        for dir in &config.additional_working_directories {
+            search_dirs.push(dir.as_path().to_path_buf());
+        }
+        let file_search = FileSearchManager::new(search_dirs, app_event_tx.clone());
+        let model = codex_core::test_support::get_model_offline(config.model.as_deref());
         let session_telemetry = test_session_telemetry(&config, model.as_str());
 
         (
