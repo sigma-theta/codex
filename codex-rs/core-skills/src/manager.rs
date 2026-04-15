@@ -25,18 +25,18 @@ use codex_config::SkillsConfig;
 
 #[derive(Debug, Clone)]
 pub struct SkillsLoadInput {
-    pub cwd: PathBuf,
-    pub additional_working_directories: Vec<PathBuf>,
-    pub effective_skill_roots: Vec<PathBuf>,
+    pub cwd: AbsolutePathBuf,
+    pub additional_working_directories: Vec<AbsolutePathBuf>,
+    pub effective_skill_roots: Vec<AbsolutePathBuf>,
     pub config_layer_stack: ConfigLayerStack,
     pub bundled_skills_enabled: bool,
 }
 
 impl SkillsLoadInput {
     pub fn new(
-        cwd: PathBuf,
-        additional_working_directories: Vec<PathBuf>,
-        effective_skill_roots: Vec<PathBuf>,
+        cwd: AbsolutePathBuf,
+        additional_working_directories: Vec<AbsolutePathBuf>,
+        effective_skill_roots: Vec<AbsolutePathBuf>,
         config_layer_stack: ConfigLayerStack,
         bundled_skills_enabled: bool,
     ) -> Self {
@@ -118,7 +118,7 @@ impl SkillsManager {
         let mut roots = skill_roots(
             fs,
             &input.config_layer_stack,
-            input.cwd.as_path(),
+            &input.cwd,
             input.additional_working_directories.clone(),
             input.effective_skill_roots.clone(),
         )
@@ -157,7 +157,7 @@ impl SkillsManager {
         let mut roots = skill_roots(
             fs.clone(),
             &input.config_layer_stack,
-            input.cwd.as_path(),
+            &input.cwd,
             input.additional_working_directories.clone(),
             input.effective_skill_roots.clone(),
         )

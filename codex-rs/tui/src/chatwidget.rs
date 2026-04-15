@@ -254,12 +254,6 @@ const MULTI_AGENT_ENABLE_NOTICE: &str = "Subagents will be enabled in the next s
 const PLAN_MODE_REASONING_SCOPE_TITLE: &str = "Apply reasoning change";
 const PLAN_MODE_REASONING_SCOPE_PLAN_ONLY: &str = "Apply to Plan mode override";
 const PLAN_MODE_REASONING_SCOPE_ALL_MODES: &str = "Apply to global default and Plan mode override";
-const ADD_DIR_PROMPT_TITLE: &str = "Add working directory";
-const ADD_DIR_PROMPT_PLACEHOLDER: &str = "Type a directory path and press Enter";
-const ADD_DIR_CONFIRM_TITLE: &str = "Add working directory?";
-const ADD_DIR_CONFIRM_SESSION_ONLY: &str = "Yes, for this session";
-const ADD_DIR_CONFIRM_REMEMBER: &str = "Yes, and remember this directory";
-const ADD_DIR_CONFIRM_CANCEL: &str = "No";
 const CONNECTORS_SELECTION_VIEW_ID: &str = "connectors-selection";
 const TUI_STUB_MESSAGE: &str = "Not available in TUI yet.";
 
@@ -323,7 +317,6 @@ use crate::bottom_pane::SelectionAction;
 use crate::bottom_pane::SelectionItem;
 use crate::bottom_pane::SelectionViewParams;
 use crate::bottom_pane::custom_prompt_view::CustomPromptView;
-use crate::bottom_pane::directory_prompt_view::DirectoryPromptView;
 use crate::bottom_pane::popup_consts::standard_popup_hint_line;
 use crate::clipboard_paste::paste_image_to_temp_png;
 use crate::collaboration_modes;
@@ -375,12 +368,6 @@ use self::realtime::RenderedUserMessageEvent;
 mod status_surfaces;
 use self::status_surfaces::CachedProjectRootName;
 use self::status_surfaces::TerminalTitleStatusKind;
-mod working_status_words;
-use self::working_status_words::DEFAULT_WORKING_STATUS;
-use self::working_status_words::WORKING_STATUS_ROTATION_INTERVAL;
-use self::working_status_words::choose_working_status_word_index;
-use self::working_status_words::load_working_status_words;
-use self::working_status_words::working_status_word_for_index;
 use crate::streaming::chunking::AdaptiveChunkingPolicy;
 use crate::streaming::commit_tick::CommitTickScope;
 use crate::streaming::commit_tick::run_commit_tick;
@@ -863,16 +850,6 @@ pub(crate) struct ChatWidget {
     active_hook_cell: Option<HookCell>,
     // Semantic status used for terminal-title status rendering.
     terminal_title_status_kind: TerminalTitleStatusKind,
-    // Candidate labels loaded from the local spinner word list.
-    working_status_words: Vec<String>,
-    // Active label reused for the current task across header/title restores.
-    current_working_status_word: String,
-    // Most recently chosen word index for the current task.
-    current_working_status_word_index: usize,
-    // Time origin for the current task's current working word.
-    current_working_status_word_started_at: Instant,
-    // True once the current turn has claimed a random working label.
-    has_current_turn_working_status_word: bool,
     // Previous status header to restore after a transient stream retry.
     retry_status_header: Option<String>,
     // Set when commentary output completes; once stream queues go idle we restore the status row.
@@ -1713,71 +1690,13 @@ impl ChatWidget {
         self.refresh_terminal_title();
     }
 
-    fn choose_next_working_status_word(&mut self, now: Instant) {
-        self.current_working_status_word_index =
-            choose_working_status_word_index(&self.working_status_words);
-        self.current_working_status_word_started_at = now;
-        self.current_working_status_word = working_status_word_for_index(
-            &self.working_status_words,
-            self.current_working_status_word_index,
-        );
-        self.has_current_turn_working_status_word = true;
-    }
-
-    fn ensure_current_turn_working_status_word(&mut self, now: Instant) {
-        if !self.has_current_turn_working_status_word {
-            self.choose_next_working_status_word(now);
-        }
-    }
-
-    fn restore_working_status_header(&mut self) {
-        self.terminal_title_status_kind = TerminalTitleStatusKind::Working;
-        self.set_status_header(self.current_working_status_word.clone());
-    }
-
-    fn refresh_working_status_word_at(&mut self, now: Instant) {
-        if !self.has_current_turn_working_status_word {
-            return;
-        }
-
-        let previous_word = self.current_working_status_word.clone();
-        let elapsed = now.saturating_duration_since(self.current_working_status_word_started_at);
-        if elapsed < WORKING_STATUS_ROTATION_INTERVAL {
-            return;
-        }
-
-        self.choose_next_working_status_word(now);
-        if self.terminal_title_status_kind == TerminalTitleStatusKind::Working
-            && self.current_status.header == previous_word
-        {
-            self.restore_working_status_header();
-        } else if self.terminal_title_status_kind == TerminalTitleStatusKind::Working {
-            self.refresh_terminal_title();
-        }
-    }
-
-    fn schedule_next_working_status_refresh(&self, now: Instant) {
-        if !self.has_current_turn_working_status_word
-            || self.terminal_title_status_kind != TerminalTitleStatusKind::Working
-        {
-            return;
-        }
-
-        let elapsed = now.saturating_duration_since(self.current_working_status_word_started_at);
-        let elapsed_ms = elapsed.as_millis();
-        let interval_ms = WORKING_STATUS_ROTATION_INTERVAL.as_millis();
-        let remaining_ms = interval_ms - (elapsed_ms % interval_ms);
-        let remaining_ms = u64::try_from(remaining_ms).unwrap_or(u64::MAX);
-        self.frame_requester
-            .schedule_frame_in(Duration::from_millis(remaining_ms.max(1)));
-    }
-
     fn restore_reasoning_status_header(&mut self) {
         if let Some(header) = extract_first_bold(&self.reasoning_buffer) {
             self.terminal_title_status_kind = TerminalTitleStatusKind::Thinking;
             self.set_status_header(header);
         } else if self.bottom_pane.is_task_running() {
-            self.restore_working_status_header();
+            self.terminal_title_status_kind = TerminalTitleStatusKind::Working;
+            self.set_status_header(String::from("Working"));
         }
     }
 
@@ -2399,8 +2318,6 @@ impl ChatWidget {
         self.bottom_pane.clear_quit_shortcut_hint();
         self.quit_shortcut_expires_at = None;
         self.quit_shortcut_key = None;
-        self.ensure_current_turn_working_status_word(Instant::now());
-        self.terminal_title_status_kind = TerminalTitleStatusKind::Working;
         self.update_task_running_state();
         self.retry_status_header = None;
         if self.active_hook_cell.take().is_some() {
@@ -2409,7 +2326,8 @@ impl ChatWidget {
         self.pending_status_indicator_restore = false;
         self.bottom_pane
             .set_interrupt_hint_visible(/*visible*/ true);
-        self.set_status_header(self.current_working_status_word.clone());
+        self.terminal_title_status_kind = TerminalTitleStatusKind::Working;
+        self.set_status_header(String::from("Working"));
         self.full_reasoning_buffer.clear();
         self.reasoning_buffer.clear();
         self.request_redraw();
@@ -2478,7 +2396,6 @@ impl ChatWidget {
         // Mark task stopped and request redraw now that all content is in history.
         self.pending_status_indicator_restore = false;
         self.agent_turn_running = false;
-        self.has_current_turn_working_status_word = false;
         self.turn_sleep_inhibitor
             .set_turn_running(/*turn_running*/ false);
         self.update_task_running_state();
@@ -3468,12 +3385,12 @@ impl ChatWidget {
                     status.details_max_lines,
                 );
             } else if self.current_status.is_guardian_review() {
-                self.restore_working_status_header();
+                self.set_status_header(String::from("Working"));
             }
         } else if self.pending_guardian_review_status.is_empty()
             && self.current_status.is_guardian_review()
         {
-            self.restore_working_status_header();
+            self.set_status_header(String::from("Working"));
         }
 
         if ev.status == GuardianAssessmentStatus::Approved {
@@ -4277,9 +4194,8 @@ impl ChatWidget {
     }
 
     pub(crate) fn pre_draw_tick(&mut self) {
-        let now = Instant::now();
-        self.refresh_working_status_word_at(now);
-        self.schedule_next_working_status_refresh(now);
+        self.update_due_hook_visibility();
+        self.schedule_hook_timer_if_needed();
         self.bottom_pane.pre_draw_tick();
         if self.should_animate_terminal_title_spinner() {
             self.refresh_terminal_title();
@@ -4855,9 +4771,6 @@ impl ChatWidget {
 
         let current_cwd = Some(config.cwd.to_path_buf());
         let queued_message_edit_binding = queued_message_edit_binding_for_terminal(terminal_info());
-        let working_status_words = load_working_status_words();
-        let current_working_status_word = DEFAULT_WORKING_STATUS.to_string();
-        let current_working_status_word_started_at = Instant::now();
         let mut widget = Self {
             app_event_tx: app_event_tx.clone(),
             frame_requester: frame_requester.clone(),
@@ -4929,11 +4842,6 @@ impl ChatWidget {
             pending_guardian_review_status: PendingGuardianReviewStatus::default(),
             active_hook_cell: None,
             terminal_title_status_kind: TerminalTitleStatusKind::Working,
-            working_status_words,
-            current_working_status_word,
-            current_working_status_word_index: 0,
-            current_working_status_word_started_at,
-            has_current_turn_working_status_word: false,
             retry_status_header: None,
             pending_status_indicator_restore: false,
             suppress_queue_autosend: false,
@@ -5161,6 +5069,7 @@ impl ChatWidget {
                         // Reset any reasoning header only when we are actually submitting a turn.
                         self.reasoning_buffer.clear();
                         self.full_reasoning_buffer.clear();
+                        self.set_status_header(String::from("Working"));
                         self.submit_user_message(user_message);
                     } else {
                         self.queue_user_message(user_message);
@@ -5260,356 +5169,9 @@ impl ChatWidget {
         false
     }
 
-    fn dispatch_command(&mut self, cmd: SlashCommand) {
-        if !cmd.available_during_task() && self.bottom_pane.is_task_running() {
-            let message = format!(
-                "'/{}' is disabled while a task is in progress.",
-                cmd.command()
-            );
-            self.add_to_history(history_cell::new_error_event(message));
-            self.bottom_pane.drain_pending_submission_state();
-            self.request_redraw();
-            return;
-        }
-        match cmd {
-            SlashCommand::Feedback => {
-                if !self.config.feedback_enabled {
-                    let params = crate::bottom_pane::feedback_disabled_params();
-                    self.bottom_pane.show_selection_view(params);
-                    self.request_redraw();
-                    return;
-                }
-                // Step 1: pick a category (UI built in feedback_view)
-                let params =
-                    crate::bottom_pane::feedback_selection_params(self.app_event_tx.clone());
-                self.bottom_pane.show_selection_view(params);
-                self.request_redraw();
-            }
-            SlashCommand::New => {
-                self.app_event_tx.send(AppEvent::NewSession);
-            }
-            SlashCommand::Clear => {
-                self.app_event_tx.send(AppEvent::ClearUi);
-            }
-            SlashCommand::Resume => {
-                self.app_event_tx.send(AppEvent::OpenResumePicker);
-            }
-            SlashCommand::Fork => {
-                self.app_event_tx.send(AppEvent::ForkCurrentSession);
-            }
-            SlashCommand::Init => {
-                let init_target = self.config.cwd.join(DEFAULT_PROJECT_DOC_FILENAME);
-                if init_target.exists() {
-                    let message = format!(
-                        "{DEFAULT_PROJECT_DOC_FILENAME} already exists here. Skipping /init to avoid overwriting it."
-                    );
-                    self.add_info_message(message, /*hint*/ None);
-                    return;
-                }
-                const INIT_PROMPT: &str = include_str!("../prompt_for_init_command.md");
-                self.submit_user_message(INIT_PROMPT.to_string().into());
-            }
-            SlashCommand::Compact => {
-                self.clear_token_usage();
-                if !self.bottom_pane.is_task_running() {
-                    self.bottom_pane.set_task_running(/*running*/ true);
-                }
-                self.app_event_tx.compact();
-            }
-            SlashCommand::Review => {
-                self.open_review_popup();
-            }
-            SlashCommand::Rename => {
-                self.session_telemetry
-                    .counter("codex.thread.rename", /*inc*/ 1, &[]);
-                self.show_rename_prompt();
-            }
-            SlashCommand::Model => {
-                self.open_model_popup();
-            }
-            SlashCommand::Fast => {
-                let next_tier = if matches!(self.config.service_tier, Some(ServiceTier::Fast)) {
-                    None
-                } else {
-                    Some(ServiceTier::Fast)
-                };
-                self.set_service_tier_selection(next_tier);
-            }
-            SlashCommand::Realtime => {
-                if !self.realtime_conversation_enabled() {
-                    return;
-                }
-                if self.realtime_conversation.is_live() {
-                    self.stop_realtime_conversation_from_ui();
-                } else {
-                    self.start_realtime_conversation();
-                }
-            }
-            SlashCommand::Settings => {
-                if !self.realtime_audio_device_selection_enabled() {
-                    return;
-                }
-                self.open_realtime_audio_popup();
-            }
-            SlashCommand::Personality => {
-                self.open_personality_popup();
-            }
-            SlashCommand::Plan => {
-                if !self.collaboration_modes_enabled() {
-                    self.add_info_message(
-                        "Collaboration modes are disabled.".to_string(),
-                        Some("Enable collaboration modes to use /plan.".to_string()),
-                    );
-                    return;
-                }
-                if let Some(mask) = collaboration_modes::plan_mask(self.model_catalog.as_ref()) {
-                    self.set_collaboration_mask(mask);
-                } else {
-                    self.add_info_message(
-                        "Plan mode unavailable right now.".to_string(),
-                        /*hint*/ None,
-                    );
-                }
-            }
-            SlashCommand::Collab => {
-                if !self.collaboration_modes_enabled() {
-                    self.add_info_message(
-                        "Collaboration modes are disabled.".to_string(),
-                        Some("Enable collaboration modes to use /collab.".to_string()),
-                    );
-                    return;
-                }
-                self.open_collaboration_modes_popup();
-            }
-            SlashCommand::Agent | SlashCommand::MultiAgents => {
-                self.app_event_tx.send(AppEvent::OpenAgentPicker);
-            }
-            SlashCommand::Approvals => {
-                self.open_permissions_popup();
-            }
-            SlashCommand::Permissions => {
-                self.open_permissions_popup();
-            }
-            SlashCommand::AddDir => {
-                self.handle_add_dir(None);
-            }
-            SlashCommand::ElevateSandbox => {
-                #[cfg(target_os = "windows")]
-                {
-                    let windows_sandbox_level = WindowsSandboxLevel::from_config(&self.config);
-                    let windows_degraded_sandbox_enabled =
-                        matches!(windows_sandbox_level, WindowsSandboxLevel::RestrictedToken);
-                    if !windows_degraded_sandbox_enabled
-                        || !codex_core::windows_sandbox::ELEVATED_SANDBOX_NUX_ENABLED
-                    {
-                        // This command should not be visible/recognized outside degraded mode,
-                        // but guard anyway in case something dispatches it directly.
-                        return;
-                    }
-
-                    let Some(preset) = builtin_approval_presets()
-                        .into_iter()
-                        .find(|preset| preset.id == "auto")
-                    else {
-                        // Avoid panicking in interactive UI; treat this as a recoverable
-                        // internal error.
-                        self.add_error_message(
-                            "Internal error: missing the 'auto' approval preset.".to_string(),
-                        );
-                        return;
-                    };
-
-                    if let Err(err) = self
-                        .config
-                        .permissions
-                        .approval_policy
-                        .can_set(&preset.approval)
-                    {
-                        self.add_error_message(err.to_string());
-                        return;
-                    }
-
-                    self.session_telemetry.counter(
-                        "codex.windows_sandbox.setup_elevated_sandbox_command",
-                        /*inc*/ 1,
-                        &[],
-                    );
-                    self.app_event_tx
-                        .send(AppEvent::BeginWindowsSandboxElevatedSetup { preset });
-                }
-                #[cfg(not(target_os = "windows"))]
-                {
-                    let _ = &self.session_telemetry;
-                    // Not supported; on non-Windows this command should never be reachable.
-                };
-            }
-            SlashCommand::SandboxReadRoot => {
-                self.add_error_message(
-                    "Usage: /sandbox-add-read-dir <absolute-directory-path>".to_string(),
-                );
-            }
-            SlashCommand::Experimental => {
-                self.open_experimental_popup();
-            }
-            SlashCommand::Quit | SlashCommand::Exit => {
-                self.request_quit_without_confirmation();
-            }
-            SlashCommand::Logout => {
-                if let Err(e) = codex_login::logout(
-                    &self.config.codex_home,
-                    self.config.cli_auth_credentials_store_mode,
-                ) {
-                    tracing::error!("failed to logout: {e}");
-                }
-                self.request_quit_without_confirmation();
-            }
-            // SlashCommand::Undo => {
-            //     self.app_event_tx.send(AppEvent::CodexOp(Op::Undo));
-            // }
-            SlashCommand::Diff => {
-                self.add_diff_in_progress();
-                let tx = self.app_event_tx.clone();
-                tokio::spawn(async move {
-                    let text = match get_git_diff().await {
-                        Ok((is_git_repo, diff_text)) => {
-                            if is_git_repo {
-                                diff_text
-                            } else {
-                                "`/diff` — _not inside a git repository_".to_string()
-                            }
-                        }
-                        Err(e) => format!("Failed to compute diff: {e}"),
-                    };
-                    tx.send(AppEvent::DiffResult(text));
-                });
-            }
-            SlashCommand::Copy => {
-                let Some(text) = self.last_copyable_output.as_deref() else {
-                    self.add_info_message(
-                        "`/copy` is unavailable before the first Codex output or right after a rollback."
-                            .to_string(),
-                        /*hint*/ None,
-                    );
-                    return;
-                };
-
-                let copy_result = clipboard_text::copy_text_to_clipboard(text);
-
-                match copy_result {
-                    Ok(()) => {
-                        let hint = self.agent_turn_running.then_some(
-                            "Current turn is still running; copied the latest completed output (not the in-progress response)."
-                                .to_string(),
-                        );
-                        self.add_info_message(
-                            "Copied latest Codex output to clipboard.".to_string(),
-                            hint,
-                        );
-                    }
-                    Err(err) => {
-                        self.add_error_message(format!("Failed to copy to clipboard: {err}"))
-                    }
-                }
-            }
-            SlashCommand::Mention => {
-                self.insert_str("@");
-            }
-            SlashCommand::Skills => {
-                self.open_skills_menu();
-            }
-            SlashCommand::Status => {
-                if self.should_prefetch_rate_limits() {
-                    let request_id = self.next_status_refresh_request_id;
-                    self.next_status_refresh_request_id =
-                        self.next_status_refresh_request_id.wrapping_add(1);
-                    self.add_status_output(/*refreshing_rate_limits*/ true, Some(request_id));
-                    self.app_event_tx.send(AppEvent::RefreshRateLimits {
-                        origin: RateLimitRefreshOrigin::StatusCommand { request_id },
-                    });
-                } else {
-                    self.add_status_output(
-                        /*refreshing_rate_limits*/ false, /*request_id*/ None,
-                    );
-                }
-            }
-            SlashCommand::DebugConfig => {
-                self.add_debug_config_output();
-            }
-            SlashCommand::Title => {
-                self.open_terminal_title_setup();
-            }
-            SlashCommand::Statusline => {
-                self.open_status_line_setup();
-            }
-            SlashCommand::Theme => {
-                self.open_theme_picker();
-            }
-            SlashCommand::Ps => {
-                self.add_ps_output();
-            }
-            SlashCommand::Stop => {
-                self.clean_background_terminals();
-            }
-            SlashCommand::MemoryDrop => {
-                self.add_app_server_stub_message("Memory maintenance");
-            }
-            SlashCommand::MemoryUpdate => {
-                self.add_app_server_stub_message("Memory maintenance");
-            }
-            SlashCommand::Mcp => {
-                self.add_mcp_output();
-            }
-            SlashCommand::Apps => {
-                self.add_connectors_output();
-            }
-            SlashCommand::Plugins => {
-                self.add_plugins_output();
-            }
-            SlashCommand::Rollout => {
-                if let Some(path) = self.rollout_path() {
-                    self.add_info_message(
-                        format!("Current rollout path: {}", path.display()),
-                        /*hint*/ None,
-                    );
-                } else {
-                    self.add_info_message(
-                        "Rollout path is not available yet.".to_string(),
-                        /*hint*/ None,
-                    );
-                }
-            }
-            SlashCommand::TestApproval => {
-                use std::collections::HashMap;
-
-                use codex_protocol::protocol::ApplyPatchApprovalRequestEvent;
-                use codex_protocol::protocol::FileChange;
-
-                self.on_apply_patch_approval_request(
-                    "1".to_string(),
-                    ApplyPatchApprovalRequestEvent {
-                        call_id: "1".to_string(),
-                        turn_id: "turn-1".to_string(),
-                        changes: HashMap::from([
-                            (
-                                PathBuf::from("/tmp/test.txt"),
-                                FileChange::Add {
-                                    content: "test".to_string(),
-                                },
-                            ),
-                            (
-                                PathBuf::from("/tmp/test2.txt"),
-                                FileChange::Update {
-                                    unified_diff: "+test\n-test2".to_string(),
-                                    move_path: None,
-                                },
-                            ),
-                        ]),
-                        reason: None,
-                        grant_root: Some(PathBuf::from("/tmp")),
-                    },
-                );
-            }
-        }
+    /// Copy the last agent response (raw markdown) to the system clipboard.
+    pub(crate) fn copy_last_agent_markdown(&mut self) {
+        self.copy_last_agent_markdown_with(crate::clipboard_copy::copy_to_clipboard);
     }
 
     /// Inner implementation with an injectable clipboard backend for testing.
@@ -5637,258 +5199,9 @@ impl ChatWidget {
         self.request_redraw();
     }
 
-        let trimmed = args.trim();
-        match cmd {
-            SlashCommand::Fast => {
-                if trimmed.is_empty() {
-                    self.dispatch_command(cmd);
-                    return;
-                }
-                match trimmed.to_ascii_lowercase().as_str() {
-                    "on" => self.set_service_tier_selection(Some(ServiceTier::Fast)),
-                    "off" => self.set_service_tier_selection(/*service_tier*/ None),
-                    "status" => {
-                        let status = if matches!(self.config.service_tier, Some(ServiceTier::Fast))
-                        {
-                            "on"
-                        } else {
-                            "off"
-                        };
-                        self.add_info_message(
-                            format!("Fast mode is {status}."),
-                            /*hint*/ None,
-                        );
-                    }
-                    _ => {
-                        self.add_error_message("Usage: /fast [on|off|status]".to_string());
-                    }
-                }
-            }
-            SlashCommand::Rename if !trimmed.is_empty() => {
-                self.session_telemetry
-                    .counter("codex.thread.rename", /*inc*/ 1, &[]);
-                let Some((prepared_args, _prepared_elements)) = self
-                    .bottom_pane
-                    .prepare_inline_args_submission(/*record_history*/ false)
-                else {
-                    return;
-                };
-                let Some(name) = codex_core::util::normalize_thread_name(&prepared_args) else {
-                    self.add_error_message("Thread name cannot be empty.".to_string());
-                    return;
-                };
-                let cell = Self::rename_confirmation_cell(&name, self.thread_id);
-                self.add_boxed_history(Box::new(cell));
-                self.request_redraw();
-                self.app_event_tx.set_thread_name(name);
-                self.bottom_pane.drain_pending_submission_state();
-            }
-            SlashCommand::Plan if !trimmed.is_empty() => {
-                self.dispatch_command(cmd);
-                if self.active_mode_kind() != ModeKind::Plan {
-                    return;
-                }
-                let Some((prepared_args, prepared_elements)) = self
-                    .bottom_pane
-                    .prepare_inline_args_submission(/*record_history*/ true)
-                else {
-                    return;
-                };
-                let local_images = self
-                    .bottom_pane
-                    .take_recent_submission_images_with_placeholders();
-                let remote_image_urls = self.take_remote_image_urls();
-                let user_message = UserMessage {
-                    text: prepared_args,
-                    local_images,
-                    remote_image_urls,
-                    text_elements: prepared_elements,
-                    mention_bindings: self.bottom_pane.take_recent_submission_mention_bindings(),
-                };
-                if self.is_session_configured() {
-                    self.reasoning_buffer.clear();
-                    self.full_reasoning_buffer.clear();
-                    self.submit_user_message(user_message);
-                } else {
-                    self.queue_user_message(user_message);
-                }
-            }
-            SlashCommand::Review if !trimmed.is_empty() => {
-                let Some((prepared_args, _prepared_elements)) = self
-                    .bottom_pane
-                    .prepare_inline_args_submission(/*record_history*/ false)
-                else {
-                    return;
-                };
-                self.submit_op(AppCommand::review(ReviewRequest {
-                    target: ReviewTarget::Custom {
-                        instructions: prepared_args,
-                    },
-                    user_facing_hint: None,
-                }));
-                self.bottom_pane.drain_pending_submission_state();
-            }
-            SlashCommand::AddDir if !trimmed.is_empty() => {
-                self.handle_add_dir(Some(trimmed.to_string()));
-                self.bottom_pane.drain_pending_submission_state();
-            }
-            SlashCommand::SandboxReadRoot if !trimmed.is_empty() => {
-                let Some((prepared_args, _prepared_elements)) = self
-                    .bottom_pane
-                    .prepare_inline_args_submission(/*record_history*/ false)
-                else {
-                    return;
-                };
-                self.app_event_tx
-                    .send(AppEvent::BeginWindowsSandboxGrantReadRoot {
-                        path: prepared_args,
-                    });
-                self.bottom_pane.drain_pending_submission_state();
-            }
-            _ => self.dispatch_command(cmd),
-        }
-    }
-
-    fn handle_add_dir(&mut self, input: Option<String>) {
-        let Some(input) = input else {
-            self.open_add_working_directory_prompt();
-            return;
-        };
-
-        match self.validate_add_working_directory_input(&input) {
-            Ok(path) => self.show_add_working_directory_confirmation(path),
-            Err(message) => self.add_error_message(message),
-        }
-    }
-
-    fn open_add_working_directory_prompt(&mut self) {
-        let tx = self.app_event_tx.clone();
-        let cancel_tx = self.app_event_tx.clone();
-        let view = DirectoryPromptView::new(
-            ADD_DIR_PROMPT_TITLE.to_string(),
-            ADD_DIR_PROMPT_PLACEHOLDER.to_string(),
-            Some(format!("Current directory: {}", self.config.cwd.display())),
-            self.config.cwd.to_path_buf(),
-            self.frame_requester.clone(),
-            Box::new(move |input: String| {
-                tx.send(AppEvent::AddWorkingDirectoryInputSubmitted { input });
-            }),
-            Box::new(move || {
-                cancel_tx.send(AppEvent::InsertHistoryCell(Box::new(
-                    history_cell::new_info_event(
-                        "Did not add a working directory.".to_string(),
-                        /*hint*/ None,
-                    ),
-                )));
-            }),
-        );
-
-        self.bottom_pane.show_view(Box::new(view));
-    }
-
-    fn validate_add_working_directory_input(&self, input: &str) -> Result<AbsolutePathBuf, String> {
-        let trimmed = input.trim();
-        if trimmed.is_empty() {
-            return Err("Please provide a directory path.".to_string());
-        }
-
-        let normalized_path = AbsolutePathBuf::resolve_path_against_base(trimmed, &self.config.cwd);
-
-        let metadata = std::fs::metadata(normalized_path.as_path())
-            .map_err(|_| format!("Path {} was not found.", normalized_path.display()))?;
-
-        if !metadata.is_dir() {
-            let suggestion = normalized_path.parent().map_or_else(String::new, |parent| {
-                format!(
-                    " Did you mean to add the parent directory {}?",
-                    parent.display()
-                )
-            });
-            return Err(format!("{trimmed} is not a directory.{suggestion}"));
-        }
-
-        if let Some(existing_root) = std::iter::once(self.config.cwd.as_path())
-            .chain(
-                self.config
-                    .additional_working_directories
-                    .iter()
-                    .map(AbsolutePathBuf::as_path),
-            )
-            .find(|root| normalized_path.as_path().starts_with(root))
-        {
-            return Err(format!(
-                "{trimmed} is already accessible within the existing working directory {}.",
-                existing_root.display()
-            ));
-        }
-
-        Ok(normalized_path)
-    }
-
-    fn show_add_working_directory_confirmation(&mut self, path: AbsolutePathBuf) {
-        let session_path = path.clone();
-        let remember_path = path.clone();
-        let path_display = path.display().to_string();
-        let cancel_path_display = path_display.clone();
-        let items = vec![
-            SelectionItem {
-                name: ADD_DIR_CONFIRM_SESSION_ONLY.to_string(),
-                description: Some("Add this directory until the current session ends.".to_string()),
-                actions: vec![Box::new(move |tx| {
-                    tx.send(AppEvent::ConfirmAddWorkingDirectory {
-                        path: session_path.clone(),
-                        persist: false,
-                    });
-                })],
-                dismiss_on_select: true,
-                ..Default::default()
-            },
-            SelectionItem {
-                name: ADD_DIR_CONFIRM_REMEMBER.to_string(),
-                description: Some("Add it now and save it to local settings.".to_string()),
-                actions: vec![Box::new(move |tx| {
-                    tx.send(AppEvent::ConfirmAddWorkingDirectory {
-                        path: remember_path.clone(),
-                        persist: true,
-                    });
-                })],
-                dismiss_on_select: true,
-                ..Default::default()
-            },
-            SelectionItem {
-                name: ADD_DIR_CONFIRM_CANCEL.to_string(),
-                description: Some("Keep the current workspace unchanged.".to_string()),
-                actions: vec![Box::new(move |tx| {
-                    tx.send(AppEvent::InsertHistoryCell(Box::new(
-                        history_cell::new_info_event(
-                            format!("Did not add {cancel_path_display} as a working directory."),
-                            /*hint*/ None,
-                        ),
-                    )));
-                })],
-                dismiss_on_select: true,
-                ..Default::default()
-            },
-        ];
-
-        self.bottom_pane.show_selection_view(SelectionViewParams {
-            title: Some(ADD_DIR_CONFIRM_TITLE.to_string()),
-            subtitle: Some(path_display),
-            footer_hint: Some(standard_popup_hint_line()),
-            items,
-            ..Default::default()
-        });
-    }
-
-    pub(crate) fn retry_add_working_directory_validation(&mut self, input: String) {
-        self.handle_add_dir(Some(input));
-    }
-
-    pub(crate) fn set_additional_working_directories(
-        &mut self,
-        additional_working_directories: Vec<AbsolutePathBuf>,
-    ) {
-        self.config.additional_working_directories = additional_working_directories;
+    #[cfg(test)]
+    pub(crate) fn last_agent_markdown_text(&self) -> Option<&str> {
+        self.last_agent_markdown.as_deref()
     }
 
     fn show_rename_prompt(&mut self) {
@@ -6046,9 +5359,6 @@ impl ChatWidget {
                 text_elements: text_elements.clone(),
             });
         }
-
-        self.choose_next_working_status_word(Instant::now());
-        self.restore_working_status_header();
 
         let mentions = collect_tool_mentions(&text, &HashMap::new());
         let bound_names: HashSet<String> = mention_bindings
@@ -8083,13 +7393,13 @@ impl ChatWidget {
                     /*approvals_reviewer*/ None,
                     /*sandbox_policy*/ None,
                     /*windows_sandbox_level*/ None,
-                    /*additional_working_directories*/ None,
                     Some(switch_model_for_events.clone()),
                     Some(Some(default_effort)),
                     /*summary*/ None,
                     /*service_tier*/ None,
                     /*collaboration_mode*/ None,
                     /*personality*/ None,
+                    /*additional_working_directories*/ None,
                 )
                 .into_core(),
             ));
@@ -8209,13 +7519,13 @@ impl ChatWidget {
                             /*approvals_reviewer*/ None,
                             /*sandbox_policy*/ None,
                             /*windows_sandbox_level*/ None,
-                            /*additional_working_directories*/ None,
                             /*model*/ None,
                             /*effort*/ None,
                             /*summary*/ None,
                             /*service_tier*/ None,
                             /*collaboration_mode*/ None,
                             Some(personality),
+                            /*additional_working_directories*/ None,
                         )
                         .into_core(),
                     ));
@@ -9196,13 +8506,13 @@ impl ChatWidget {
                     Some(approvals_reviewer),
                     Some(sandbox_clone.clone()),
                     /*windows_sandbox_level*/ None,
-                    /*additional_working_directories*/ None,
                     /*model*/ None,
                     /*effort*/ None,
                     /*summary*/ None,
                     /*service_tier*/ None,
                     /*collaboration_mode*/ None,
                     /*personality*/ None,
+                    /*additional_working_directories*/ None,
                 )
                 .into_core(),
             ));
@@ -10006,13 +9316,13 @@ impl ChatWidget {
                 /*approvals_reviewer*/ None,
                 /*sandbox_policy*/ None,
                 /*windows_sandbox_level*/ None,
-                /*additional_working_directories*/ None,
                 /*model*/ None,
                 /*effort*/ None,
                 /*summary*/ None,
                 Some(service_tier),
                 /*collaboration_mode*/ None,
                 /*personality*/ None,
+                /*additional_working_directories*/ None,
             )
             .into_core(),
         ));

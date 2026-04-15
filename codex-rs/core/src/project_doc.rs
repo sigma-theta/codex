@@ -280,8 +280,8 @@ async fn discover_project_doc_paths_for_directory(
     if !project_root_markers.is_empty() {
         for ancestor in dir.ancestors() {
             for marker in project_root_markers {
-                let marker_path = AbsolutePathBuf::try_from(ancestor.join(marker))?;
-                let marker_exists = match fs.get_metadata(&marker_path).await {
+                let marker_path = AbsolutePathBuf::try_from(ancestor.join(marker)).unwrap();
+                let marker_exists = match fs.get_metadata(&marker_path, None).await {
                     Ok(_) => true,
                     Err(err) if err.kind() == io::ErrorKind::NotFound => false,
                     Err(err) => return Err(err),
@@ -320,7 +320,7 @@ async fn discover_project_doc_paths_for_directory(
     for search_dir in search_dirs {
         for name in candidate_filenames {
             let candidate = search_dir.join(name);
-            match fs.get_metadata(&candidate).await {
+            match fs.get_metadata(&candidate, None).await {
                 Ok(md) if md.is_file => {
                     found.push(candidate);
                     break;

@@ -5517,7 +5517,7 @@ mod handlers {
                 )
                 .await;
             let skills_input = crate::SkillsLoadInput::new(
-                cwd.clone(),
+                cwd_abs.clone(),
                 Vec::new(),
                 effective_skill_roots,
                 config_layer_stack,

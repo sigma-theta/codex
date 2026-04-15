@@ -274,11 +274,44 @@ try {
 
         $customCommitCount = Get-GitOutput "git rev-list --count $UpstreamRemote/$BaseBranch..$BaseBranch"
         $customCommitCount = $customCommitCount | Select-Object -First 1
-        Write-Host "==> Replaying $customCommitCount customization commit(s) onto $UpstreamRemote/$BaseBranch"
+        Write-Host "==> Merging $customCommitCount customization commit(s) onto $UpstreamRemote/$BaseBranch"
         Write-Host "==> If anything goes wrong, your pre-update branch tip is saved at $backupBranch"
     }
 
-    Invoke-Step "git rebase --rebase-merges -X theirs $UpstreamRemote/$BaseBranch" -AllowDryRun
+    Invoke-Step "git merge $UpstreamRemote/$BaseBranch" -AllowDryRun
+
+    $mergeConflicts = @(Get-GitOutput "git diff --name-only --diff-filter=U")
+    if ($mergeConflicts.Count -gt 0) {
+        Write-Host "==> Detected $($mergeConflicts.Count) merge conflict(s), auto-resolving..."
+
+        $tuiConflicts = @()
+        $otherConflicts = @()
+
+        foreach ($conflict in $mergeConflicts) {
+            if ($conflict -like 'codex-rs/tui/*' -or $conflict -like 'tui/*') {
+                $tuiConflicts += $conflict
+            } else {
+                $otherConflicts += $conflict
+            }
+        }
+
+        if ($otherConflicts.Count -gt 0) {
+            Write-Host "==> Accepting upstream version for: $($otherConflicts -join ', ')"
+            foreach ($conflict in $otherConflicts) {
+                Invoke-Step "git checkout --theirs -- '$conflict'"
+            }
+        }
+
+        if ($tuiConflicts.Count -gt 0) {
+            Write-Host "==> Keeping your version for: $($tuiConflicts -join ', ')"
+            foreach ($conflict in $tuiConflicts) {
+                Invoke-Step "git checkout --ours -- '$conflict'"
+            }
+        }
+
+        Invoke-Step "git add ."
+        Invoke-Step "git commit -m 'Merge: resolve conflicts (ours: tui/, theirs: other)'"
+    }
 
     if (-not $SkipPush) {
         Invoke-Step "git push --force-with-lease $PushRemote $BaseBranch" -AllowDryRun

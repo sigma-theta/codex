@@ -16,7 +16,6 @@ pub enum SlashCommand {
     Fast,
     Approvals,
     Permissions,
-    AddDir,
     #[strum(serialize = "setup-default-sandbox")]
     ElevateSandbox,
     #[strum(serialize = "sandbox-add-read-dir")]
@@ -105,7 +104,6 @@ impl SlashCommand {
             SlashCommand::Agent | SlashCommand::MultiAgents => "switch the active agent thread",
             SlashCommand::Approvals => "choose what Codex is allowed to do",
             SlashCommand::Permissions => "choose what Codex is allowed to do",
-            SlashCommand::AddDir => "add a new working directory",
             SlashCommand::ElevateSandbox => "set up elevated agent sandbox",
             SlashCommand::SandboxReadRoot => {
                 "let sandbox read a directory: /sandbox-add-read-dir <absolute_path>"
@@ -134,7 +132,7 @@ impl SlashCommand {
                 | SlashCommand::Rename
                 | SlashCommand::Plan
                 | SlashCommand::Fast
-                | SlashCommand::AddDir
+                | SlashCommand::Resume
                 | SlashCommand::SandboxReadRoot
         )
     }
@@ -153,7 +151,6 @@ impl SlashCommand {
             | SlashCommand::Personality
             | SlashCommand::Approvals
             | SlashCommand::Permissions
-            | SlashCommand::AddDir
             | SlashCommand::ElevateSandbox
             | SlashCommand::SandboxReadRoot
             | SlashCommand::Experimental
@@ -223,10 +220,5 @@ mod tests {
     #[test]
     fn clean_alias_parses_to_stop_command() {
         assert_eq!(SlashCommand::from_str("clean"), Ok(SlashCommand::Stop));
-    }
-    #[test]
-    fn add_dir_parses_and_supports_inline_args() {
-        assert_eq!(SlashCommand::from_str("add-dir"), Ok(SlashCommand::AddDir));
-        assert!(SlashCommand::AddDir.supports_inline_args());
     }
 }

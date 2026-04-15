@@ -6359,13 +6359,12 @@ impl CodexMessageProcessor {
                     config.features.enabled(Feature::Plugins),
                 )
                 .await;
+            let cwd = AbsolutePathBuf::try_from(cwd).unwrap();
             let skills_input = codex_core::skills::SkillsLoadInput::new(
                 cwd.clone(),
                 config
                     .additional_working_directories
-                    .iter()
-                    .map(|path| path.clone().into_path_buf())
-                    .collect(),
+                    .clone(),
                 effective_skill_roots,
                 config_layer_stack,
                 config.bundled_skills_enabled(),
@@ -6381,7 +6380,7 @@ impl CodexMessageProcessor {
             let errors = errors_to_info(&outcome.errors);
             let skills = skills_to_info(&outcome.skills, &outcome.disabled_paths);
             data.push(codex_app_server_protocol::SkillsListEntry {
-                cwd,
+                cwd: cwd.to_path_buf(),
                 skills,
                 errors,
             });
